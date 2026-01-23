@@ -12,6 +12,7 @@ import {
   faUserShield,
   faChartBar,
   faClock,
+  faSync,
 } from "@fortawesome/free-solid-svg-icons";
 
 interface GroupStats {
@@ -42,6 +43,7 @@ export default function Groups() {
   const cache = useCache();
   const [groups, setGroups] = useState<GroupItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [nightModeSettings, setNightModeSettings] =
     useState<NightModeSettings | null>(null);
 
@@ -124,6 +126,22 @@ export default function Groups() {
     }
   };
 
+  const refreshMemberCounts = async () => {
+    setRefreshing(true);
+    try {
+      await api.post("/groups/refresh");
+      // Wait a bit for background task to complete, then refetch
+      setTimeout(async () => {
+        cache.remove("groups"); // Clear cache
+        await fetchGroups();
+        setRefreshing(false);
+      }, 3000);
+    } catch (error) {
+      console.error("Failed to refresh:", error);
+      setRefreshing(false);
+    }
+  };
+
   if (loading) {
     return <LoadingSpinner message="Loading groups..." />;
   }
@@ -134,8 +152,19 @@ export default function Groups() {
         <h1>
           <FontAwesomeIcon icon={faUsers} /> Groups
         </h1>
-        <p className="subtitle">Manage your Telegram groups</p>
+        <div className="header-actions">
+          <button
+            onClick={refreshMemberCounts}
+            disabled={refreshing}
+            className="btn btn-secondary"
+            title="Refresh member counts from Telegram"
+          >
+            <FontAwesomeIcon icon={faSync} spin={refreshing} />
+            {refreshing ? " Refreshing..." : " Refresh"}
+          </button>
+        </div>
       </div>
+      <p className="subtitle">Manage your Telegram groups</p>
 
       <div className="card">
         <div className="card-body">

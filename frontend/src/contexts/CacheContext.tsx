@@ -17,6 +17,7 @@ interface CacheContextType {
   get: <T>(key: string) => T | null;
   set: <T>(key: string, data: T, ttl?: number) => void;
   clear: (key?: string) => void;
+  remove: (key: string) => void;
   isStale: (key: string, ttl: number) => boolean;
 }
 
@@ -104,6 +105,14 @@ export function CacheProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const remove = useCallback((key: string) => {
+    try {
+      localStorage.removeItem(CACHE_PREFIX + key);
+    } catch (e) {
+      console.warn("Failed to remove cache key:", e);
+    }
+  }, []);
+
   const isStale = useCallback(
     (key: string, ttl: number = DEFAULT_TTL): boolean => {
       try {
@@ -122,7 +131,7 @@ export function CacheProvider({ children }: { children: ReactNode }) {
   if (!isReady) return null;
 
   return (
-    <CacheContext.Provider value={{ get, set, clear, isStale }}>
+    <CacheContext.Provider value={{ get, set, clear, remove, isStale }}>
       {children}
     </CacheContext.Provider>
   );

@@ -7,6 +7,7 @@ import sqlite3
 import os
 import sys
 import logging
+import threading
 
 logger = logging.getLogger(__name__)
 
@@ -113,33 +114,42 @@ async def get_group_stats(group_chat_id: int) -> Optional[GroupStats]:
 
 @router.get("/", response_model=GroupsResponse)
 async def get_groups(current_user: User = Depends(get_current_user)):
-    """Get all groups with statistics"""
+    """Get all groups with statistics (fast, from database)"""
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
 
+        # Include member_count from database
         cursor.execute(
             """
-            SELECT id, group_chat_id, group_name, language, night_mode_active, COALESCE(pause_active, 0)
+            SELECT id, group_chat_id, group_name, language, night_mode_active, 
+                   COALESCE(pause_active, 0), COALESCE(member_count, 0)
             FROM group_data
             ORDER BY group_name
         """
         )
 
         rows = cursor.fetchall()
+        conn.close()
 
         groups = []
         total_members = 0
-        member_updates = []
         for row in rows:
-            stats = await get_group_stats(row[1])
-            member_count = 0
-            if stats:
-                member_count = stats.member_count
-                total_members += member_count
-                # Queue update for database
-                if row[1]:  # Only if group_chat_id is not None
-                    member_updates.append((member_count, row[1]))
+            member_count = row[6] if row[6] else 0
+            total_members += member_count
+
+            # Use cached stats from database instead of live API calls
+            stats = (
+                GroupStats(
+                    member_count=member_count,
+                    admin_count=0,  # Not tracked in DB
+                    created_at=None,
+                    last_activity=None,
+                )
+                if row[1]
+                else None
+            )  # Only if group_chat_id exists
+
             groups.append(
                 GroupItem(
                     id=row[0],
@@ -151,16 +161,6 @@ async def get_groups(current_user: User = Depends(get_current_user)):
                     stats=stats,
                 )
             )
-
-        # Save member counts to database for persistence
-        if member_updates:
-            cursor.executemany(
-                "UPDATE group_data SET member_count = ? WHERE group_chat_id = ?",
-                member_updates,
-            )
-            conn.commit()
-
-        conn.close()
 
         # Cache total member count for dashboard
         set_total_members(total_members)
@@ -358,3 +358,57 @@ async def pause_group(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+def refresh_member_counts_background():
+    """Background task to refresh member counts from Telegram API"""
+    import requests
+
+    try:
+        bot = get_bot_instance()
+        if not bot:
+            return
+
+        db_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+            "database",
+            "group_data.db",
+        )
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        cursor.execute(
+            "SELECT group_chat_id FROM group_data WHERE group_chat_id IS NOT NULL"
+        )
+        groups = cursor.fetchall()
+
+        for (group_chat_id,) in groups:
+            try:
+                response = requests.get(
+                    f"https://api.telegram.org/bot{bot.token}/getChatMemberCount",
+                    params={"chat_id": group_chat_id},
+                    timeout=5,
+                )
+                if response.status_code == 200:
+                    data = response.json()
+                    if data.get("ok"):
+                        member_count = data.get("result", 0)
+                        cursor.execute(
+                            "UPDATE group_data SET member_count = ? WHERE group_chat_id = ?",
+                            (member_count, group_chat_id),
+                        )
+            except:
+                pass
+
+        conn.commit()
+        conn.close()
+        logger.info("[WebUI] Member counts refreshed from Telegram API")
+    except Exception as e:
+        logger.error(f"[WebUI] Error refreshing member counts: {e}")
+
+
+@router.post("/refresh")
+async def refresh_groups(current_user: User = Depends(get_current_user)):
+    """Trigger background refresh of member counts from Telegram API"""
+    threading.Thread(target=refresh_member_counts_background, daemon=True).start()
+    return {"success": True, "message": "Refresh started in background"}

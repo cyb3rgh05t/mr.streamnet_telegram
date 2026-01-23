@@ -1,4 +1,8 @@
-"""Dashboard endpoints - Main dashboard stats and overview"""
+"""Dashboard endpoints - Main dashboard stats and overview
+
+OPTIMIZED: All data is loaded from database/cache instantly.
+Background task updates expensive API data every 5 minutes.
+"""
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -11,10 +15,7 @@ from datetime import datetime
 import time
 import json
 import logging
-import asyncio
-import aiohttp
-
-from api.routers.cache import get_total_members, is_member_cache_valid
+import threading
 
 logger = logging.getLogger(__name__)
 
@@ -24,18 +25,17 @@ from api.main import get_bot_instance, get_bot_start_time
 
 router = APIRouter()
 
-# Cache for expensive operations
+# In-memory cache for fast access (populated by background tasks)
 _cache = {
-    "media_stats": {"data": None, "timestamp": 0},
-    "service_status": {"data": None, "timestamp": 0},
-    "bot_status": {"data": None, "timestamp": 0},
-    "cpu_percent": {"data": 0, "timestamp": 0},
+    "latency": None,
+    "sonarr_status": "unknown",
+    "radarr_status": "unknown",
+    "last_update": 0,
 }
-CACHE_TTL = 60  # 60 seconds cache
-CPU_CACHE_TTL = 5  # 5 seconds for CPU (updated in background)
 
-# Start background CPU monitoring
-_cpu_percent = 0
+# Background update interval (5 minutes)
+BACKGROUND_UPDATE_INTERVAL = 300
+_background_task_started = False
 
 
 class BotStatus(BaseModel):
@@ -93,15 +93,136 @@ def get_db_connection():
     return sqlite3.connect(db_path)
 
 
-def get_bot_status() -> BotStatus:
-    """Get bot status information with caching for expensive operations"""
-    global _cache
+def get_config():
+    """Load config file"""
+    config_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+        "config",
+        "config.json",
+    )
+    with open(config_path, "r") as f:
+        return json.load(f)
 
+
+def update_background_data():
+    """Background task to update expensive data (APIs, latency)"""
+    global _cache
+    import requests
+
+    bot = get_bot_instance()
+
+    # Update latency
+    if bot and hasattr(bot, "token"):
+        try:
+            start = time.time()
+            response = requests.get(
+                f"https://api.telegram.org/bot{bot.token}/getMe", timeout=5
+            )
+            if response.status_code == 200:
+                _cache["latency"] = round((time.time() - start) * 1000, 2)
+        except:
+            _cache["latency"] = None
+
+    # Update Sonarr/Radarr data
+    try:
+        config = get_config()
+
+        sonarr_total = 0
+        radarr_total = 0
+        sonarr_status = "stopped"
+        radarr_status = "stopped"
+
+        # Sonarr
+        if config.get("sonarr", {}).get("URL") and config.get("sonarr", {}).get(
+            "API_KEY"
+        ):
+            try:
+                headers = {"X-Api-Key": config["sonarr"]["API_KEY"]}
+                response = requests.get(
+                    f"{config['sonarr']['URL']}/api/v3/series",
+                    headers=headers,
+                    timeout=10,
+                )
+                if response.status_code == 200:
+                    sonarr_total = len(response.json())
+                    sonarr_status = "running"
+            except:
+                pass
+
+        # Radarr
+        if config.get("radarr", {}).get("URL") and config.get("radarr", {}).get(
+            "API_KEY"
+        ):
+            try:
+                headers = {"X-Api-Key": config["radarr"]["API_KEY"]}
+                response = requests.get(
+                    f"{config['radarr']['URL']}/api/v3/movie",
+                    headers=headers,
+                    timeout=10,
+                )
+                if response.status_code == 200:
+                    radarr_total = len(response.json())
+                    radarr_status = "running"
+            except:
+                pass
+
+        _cache["sonarr_status"] = sonarr_status
+        _cache["radarr_status"] = radarr_status
+
+        # Save to database
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT OR REPLACE INTO dashboard_cache (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)",
+                ("sonarr_total", sonarr_total),
+            )
+            cursor.execute(
+                "INSERT OR REPLACE INTO dashboard_cache (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)",
+                ("radarr_total", radarr_total),
+            )
+            conn.commit()
+            conn.close()
+            logger.debug(
+                f"Background update: Sonarr={sonarr_total}, Radarr={radarr_total}"
+            )
+        except Exception as e:
+            logger.debug(f"Error saving to database: {e}")
+
+    except Exception as e:
+        logger.debug(f"Background update error: {e}")
+
+    _cache["last_update"] = time.time()
+
+
+def background_update_loop():
+    """Continuous background update loop"""
+    while True:
+        try:
+            update_background_data()
+        except Exception as e:
+            logger.debug(f"Background loop error: {e}")
+        time.sleep(BACKGROUND_UPDATE_INTERVAL)
+
+
+def start_background_task():
+    """Start background update task (called once on startup)"""
+    global _background_task_started
+    if not _background_task_started:
+        _background_task_started = True
+        # Run first update immediately in background
+        threading.Thread(target=update_background_data, daemon=True).start()
+        # Start continuous loop
+        threading.Thread(target=background_update_loop, daemon=True).start()
+        logger.info("Dashboard background update task started")
+
+
+def get_bot_status_fast() -> BotStatus:
+    """Get bot status from database only (fast, no API calls)"""
     bot = get_bot_instance()
     start_time = get_bot_start_time()
 
     if bot and hasattr(bot, "token"):
-        # Get bot info
         try:
             name = (
                 f"@{bot.username}"
@@ -120,7 +241,7 @@ def get_bot_status() -> BotStatus:
         else:
             uptime = "Unknown"
 
-        # Get group data from database (fast)
+        # Get data from database (fast)
         conn = get_db_connection()
         cursor = conn.cursor()
 
@@ -129,47 +250,12 @@ def get_bot_status() -> BotStatus:
         )
         groups = cursor.fetchone()[0]
 
-        # Get total member count from database (fallback for after restart)
         cursor.execute(
             "SELECT COALESCE(SUM(member_count), 0) FROM group_data WHERE group_chat_id IS NOT NULL"
         )
-        db_member_count = cursor.fetchone()[0]
+        total_members = cursor.fetchone()[0]
+
         conn.close()
-
-        # Check if we have cached bot status for expensive operations
-        now = time.time()
-        cached = _cache.get("bot_status", {})
-
-        if cached.get("data") and (now - cached.get("timestamp", 0)) < CACHE_TTL:
-            # Use cached latency and user count
-            latency = cached["data"].get("latency")
-            total_members = cached["data"].get("users", 0)
-        else:
-            # Calculate latency with real Telegram API call
-            latency = None
-            try:
-                import requests
-
-                start = time.time()
-                response = requests.get(
-                    f"https://api.telegram.org/bot{bot.token}/getMe", timeout=3
-                )
-                if response.status_code == 200:
-                    latency_ms = (time.time() - start) * 1000
-                    latency = round(latency_ms, 2)
-            except Exception:
-                latency = None
-
-            # Get member count: prefer shared cache, fallback to database
-            total_members = get_total_members()
-            if total_members == 0:
-                total_members = db_member_count
-
-            # Update cache
-            _cache["bot_status"] = {
-                "data": {"latency": latency, "users": total_members},
-                "timestamp": now,
-            }
 
         return BotStatus(
             online=True,
@@ -177,7 +263,7 @@ def get_bot_status() -> BotStatus:
             uptime=uptime,
             groups=groups,
             users=total_members,
-            latency=latency,
+            latency=_cache.get("latency"),
         )
 
     return BotStatus(
@@ -190,22 +276,11 @@ def get_bot_status() -> BotStatus:
     )
 
 
-def get_media_stats() -> MediaStats:
-    """Get media statistics from Sonarr/Radarr with caching and database persistence"""
-    global _cache
-
-    # Check cache first
-    now = time.time()
-    if (
-        _cache["media_stats"]["data"]
-        and (now - _cache["media_stats"]["timestamp"]) < CACHE_TTL
-    ):
-        return _cache["media_stats"]["data"]
-
+def get_media_stats_fast() -> MediaStats:
+    """Get media stats from database only (fast, no API calls)"""
     sonarr_total = 0
     radarr_total = 0
 
-    # Load from database as fallback (for after restart)
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -219,200 +294,68 @@ def get_media_stats() -> MediaStats:
                 radarr_total = row[1]
         conn.close()
     except Exception as e:
-        logger.debug(f"Error loading media stats from database: {e}")
+        logger.debug(f"Error loading media stats: {e}")
 
-    # Try to get fresh data from APIs
-    try:
-        # Load config
-        config_path = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-            "config",
-            "config.json",
-        )
-        with open(config_path, "r") as f:
-            config = json.load(f)
-
-        import requests
-
-        api_sonarr = 0
-        api_radarr = 0
-        got_fresh_data = False
-
-        # Get Sonarr count
-        if config.get("sonarr", {}).get("URL") and config.get("sonarr", {}).get(
-            "API_KEY"
-        ):
-            try:
-                headers = {"X-Api-Key": config["sonarr"]["API_KEY"]}
-                response = requests.get(
-                    f"{config['sonarr']['URL']}/api/v3/series",
-                    headers=headers,
-                    timeout=10,
-                )
-                if response.status_code == 200:
-                    api_sonarr = len(response.json())
-                    sonarr_total = api_sonarr
-                    got_fresh_data = True
-                    logger.debug(f"Sonarr: {sonarr_total} series found")
-                else:
-                    logger.debug(f"Sonarr API returned status {response.status_code}")
-            except Exception as e:
-                logger.debug(f"Sonarr API error: {e}")
-
-        # Get Radarr count
-        if config.get("radarr", {}).get("URL") and config.get("radarr", {}).get(
-            "API_KEY"
-        ):
-            try:
-                headers = {"X-Api-Key": config["radarr"]["API_KEY"]}
-                response = requests.get(
-                    f"{config['radarr']['URL']}/api/v3/movie",
-                    headers=headers,
-                    timeout=10,
-                )
-                if response.status_code == 200:
-                    api_radarr = len(response.json())
-                    radarr_total = api_radarr
-                    got_fresh_data = True
-                    logger.debug(f"Radarr: {radarr_total} movies found")
-                else:
-                    logger.debug(f"Radarr API returned status {response.status_code}")
-            except Exception as e:
-                logger.debug(f"Radarr API error: {e}")
-
-        # Save to database if we got fresh data
-        if got_fresh_data:
-            try:
-                conn = get_db_connection()
-                cursor = conn.cursor()
-                cursor.execute(
-                    "INSERT OR REPLACE INTO dashboard_cache (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)",
-                    ("sonarr_total", sonarr_total),
-                )
-                cursor.execute(
-                    "INSERT OR REPLACE INTO dashboard_cache (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)",
-                    ("radarr_total", radarr_total),
-                )
-                conn.commit()
-                conn.close()
-            except Exception as e:
-                logger.debug(f"Error saving media stats to database: {e}")
-
-    except Exception as e:
-        logger.debug(f"Error loading config for media stats: {e}")
-
-    result = MediaStats(
-        sonarr_total=sonarr_total, radarr_total=radarr_total, pending_requests=0
+    return MediaStats(
+        sonarr_total=sonarr_total,
+        radarr_total=radarr_total,
+        pending_requests=0,
     )
-
-    # Update cache
-    _cache["media_stats"] = {"data": result, "timestamp": now}
-
-    return result
 
 
 def get_group_stats() -> GroupStats:
-    """Get group statistics"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    """Get group statistics from database (fast)"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
 
-    cursor.execute("SELECT COUNT(*) FROM group_data")
-    total = cursor.fetchone()[0]
+        cursor.execute(
+            "SELECT COUNT(*) FROM group_data WHERE group_chat_id IS NOT NULL"
+        )
+        total = cursor.fetchone()[0]
 
-    cursor.execute("SELECT COUNT(*) FROM group_data WHERE night_mode_active = 1")
-    night_mode_enabled = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM group_data WHERE night_mode_active = 1")
+        night_mode = cursor.fetchone()[0]
 
-    conn.close()
+        conn.close()
 
-    return GroupStats(total=total, night_mode_enabled=night_mode_enabled)
+        return GroupStats(total=total, night_mode_enabled=night_mode)
+    except:
+        return GroupStats(total=0, night_mode_enabled=0)
 
 
 def get_system_resources() -> SystemResources:
-    """Get system resource usage - non-blocking"""
-    # Use non-blocking CPU measurement (instant, based on last interval)
-    cpu_percent = psutil.cpu_percent(interval=None)  # Non-blocking!
+    """Get system resource usage (fast, local only)"""
+    # CPU - use non-blocking call
+    cpu_percent = psutil.cpu_percent(interval=None)
+
+    # Memory
     memory = psutil.virtual_memory()
 
-    # Handle different OS for disk
-    try:
-        disk = psutil.disk_usage("/")
-    except:
-        try:
-            disk = psutil.disk_usage("C:\\")
-        except:
-            disk = type("obj", (object,), {"percent": 0})()
+    # Disk
+    disk = psutil.disk_usage("/")
 
     return SystemResources(
-        cpu=ResourceItem(percent=cpu_percent, label="CPU"),
-        memory=ResourceItem(percent=memory.percent, label="Memory"),
-        disk=ResourceItem(percent=disk.percent, label="Disk"),
+        cpu=ResourceItem(
+            percent=round(cpu_percent, 1),
+            label=f"{cpu_percent:.1f}%",
+        ),
+        memory=ResourceItem(
+            percent=round(memory.percent, 1),
+            label=f"{memory.used // (1024**3)}GB / {memory.total // (1024**3)}GB",
+        ),
+        disk=ResourceItem(
+            percent=round(disk.percent, 1),
+            label=f"{disk.used // (1024**3)}GB / {disk.total // (1024**3)}GB",
+        ),
     )
 
 
-def get_service_status() -> List[ServiceItem]:
-    """Get service status with caching"""
-    global _cache
-
-    # Check cache
-    now = time.time()
-    if (
-        _cache["service_status"]["data"]
-        and (now - _cache["service_status"]["timestamp"]) < CACHE_TTL
-    ):
-        return _cache["service_status"]["data"]
-
+def get_service_status_fast() -> List[ServiceItem]:
+    """Get service status (fast, from cache)"""
     bot = get_bot_instance()
 
-    # Check Sonarr/Radarr status
-    sonarr_status = "stopped"
-    radarr_status = "stopped"
-
-    try:
-        config_path = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-            "config",
-            "config.json",
-        )
-        with open(config_path, "r") as f:
-            config = json.load(f)
-
-        import requests
-
-        # Check Sonarr
-        if config.get("sonarr", {}).get("URL") and config.get("sonarr", {}).get(
-            "API_KEY"
-        ):
-            try:
-                headers = {"X-Api-Key": config["sonarr"]["API_KEY"]}
-                response = requests.get(
-                    f"{config['sonarr']['URL']}/api/v3/system/status",
-                    headers=headers,
-                    timeout=5,
-                )
-                if response.status_code == 200:
-                    sonarr_status = "running"
-            except:
-                pass
-
-        # Check Radarr
-        if config.get("radarr", {}).get("URL") and config.get("radarr", {}).get(
-            "API_KEY"
-        ):
-            try:
-                headers = {"X-Api-Key": config["radarr"]["API_KEY"]}
-                response = requests.get(
-                    f"{config['radarr']['URL']}/api/v3/system/status",
-                    headers=headers,
-                    timeout=5,
-                )
-                if response.status_code == 200:
-                    radarr_status = "running"
-            except:
-                pass
-    except:
-        pass
-
-    services = [
+    return [
         ServiceItem(
             name="Telegram Bot",
             status="running" if bot else "stopped",
@@ -425,31 +368,29 @@ def get_service_status() -> List[ServiceItem]:
         ),
         ServiceItem(
             name="Sonarr",
-            status=sonarr_status,
+            status=_cache.get("sonarr_status", "unknown"),
             icon="fa-tv",
         ),
         ServiceItem(
             name="Radarr",
-            status=radarr_status,
+            status=_cache.get("radarr_status", "unknown"),
             icon="fa-film",
         ),
     ]
 
-    # Update cache
-    _cache["service_status"] = {"data": services, "timestamp": now}
-
-    return services
-
 
 @router.get("/", response_model=DashboardData)
 async def get_dashboard():
-    """Get dashboard overview data"""
+    """Get dashboard overview data (fast, from database/cache only)"""
+    # Start background task if not already running
+    start_background_task()
+
     try:
-        bot_status = get_bot_status()
-        media_stats = get_media_stats()
+        bot_status = get_bot_status_fast()
+        media_stats = get_media_stats_fast()
         group_stats = get_group_stats()
         resources = get_system_resources()
-        services = get_service_status()
+        services = get_service_status_fast()
 
         return DashboardData(
             bot_status=bot_status,
@@ -465,4 +406,11 @@ async def get_dashboard():
 @router.get("/bot-status", response_model=BotStatus)
 async def get_bot_status_endpoint():
     """Get bot status only"""
-    return get_bot_status()
+    return get_bot_status_fast()
+
+
+@router.post("/refresh")
+async def refresh_dashboard():
+    """Trigger manual refresh of background data"""
+    threading.Thread(target=update_background_data, daemon=True).start()
+    return {"success": True, "message": "Refresh started in background"}
