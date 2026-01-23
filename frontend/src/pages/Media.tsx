@@ -26,9 +26,18 @@ const ITEMS_PER_PAGE = 24; // Show 24 items per page (good for grid layout)
 
 export default function Media() {
   const cache = useCache();
-  const [sonarrMedia, setSonarrMedia] = useState<MediaItem[]>([]);
-  const [radarrMedia, setRadarrMedia] = useState<MediaItem[]>([]);
-  const [loading, setLoading] = useState(true);
+
+  // Initialize state from cache immediately
+  const cachedSonarr = cache.get<MediaItem[]>("media_sonarr");
+  const cachedRadarr = cache.get<MediaItem[]>("media_radarr");
+
+  const [sonarrMedia, setSonarrMedia] = useState<MediaItem[]>(
+    cachedSonarr || [],
+  );
+  const [radarrMedia, setRadarrMedia] = useState<MediaItem[]>(
+    cachedRadarr || [],
+  );
+  const [loading, setLoading] = useState(!cachedSonarr && !cachedRadarr); // Only loading if no cache
   const [activeTab, setActiveTab] = useState<"sonarr" | "radarr">("sonarr");
   const [search, setSearch] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
@@ -43,36 +52,29 @@ export default function Media() {
   }, [activeTab, search]);
 
   const fetchMedia = async () => {
-    // Check cache first
-    const cachedSonarr = cache.get<MediaItem[]>("media_sonarr");
-    const cachedRadarr = cache.get<MediaItem[]>("media_radarr");
-
     const sonarrStale = cache.isStale("media_sonarr", CACHE_TTL);
     const radarrStale = cache.isStale("media_radarr", CACHE_TTL);
 
-    // Use cached data if available and not stale
-    if (cachedSonarr && !sonarrStale) {
-      setSonarrMedia(cachedSonarr);
-    }
-    if (cachedRadarr && !radarrStale) {
-      setRadarrMedia(cachedRadarr);
-    }
-
     // If both are cached and fresh, no need to fetch
-    if (cachedSonarr && cachedRadarr && !sonarrStale && !radarrStale) {
+    if (
+      !sonarrStale &&
+      !radarrStale &&
+      sonarrMedia.length > 0 &&
+      radarrMedia.length > 0
+    ) {
       setLoading(false);
       return;
     }
 
-    // Fetch fresh data
+    // Fetch fresh data in background (don't show loading if we have cached data)
     try {
       const [sonarrRes, radarrRes] = await Promise.all([
         sonarrStale
           ? api.get("/media/sonarr")
-          : Promise.resolve({ data: { items: cachedSonarr } }),
+          : Promise.resolve({ data: { items: sonarrMedia } }),
         radarrStale
           ? api.get("/media/radarr")
-          : Promise.resolve({ data: { items: cachedRadarr } }),
+          : Promise.resolve({ data: { items: radarrMedia } }),
       ]);
 
       const sonarrData = sonarrRes.data.items;
