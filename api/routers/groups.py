@@ -32,7 +32,7 @@ class GroupItem(BaseModel):
     group_chat_id: int
     group_name: Optional[str]
     language: Optional[str]
-    night_mode_active: bool
+    night_mode_enabled: bool
     pause_active: bool
     stats: Optional[GroupStats] = None
 
@@ -122,7 +122,7 @@ async def get_groups(current_user: User = Depends(get_current_user)):
         # Include member_count and admin_count from database
         cursor.execute(
             """
-            SELECT id, group_chat_id, group_name, language, night_mode_active, 
+            SELECT id, group_chat_id, group_name, language, COALESCE(night_mode_enabled, 0), 
                    COALESCE(pause_active, 0), COALESCE(member_count, 0), COALESCE(admin_count, 0)
             FROM group_data
             ORDER BY group_name
@@ -157,7 +157,7 @@ async def get_groups(current_user: User = Depends(get_current_user)):
                     group_chat_id=row[1],
                     group_name=row[2],
                     language=row[3],
-                    night_mode_active=bool(row[4]),
+                    night_mode_enabled=bool(row[4]),
                     pause_active=bool(row[5]),
                     stats=stats,
                 )
@@ -180,7 +180,7 @@ async def get_group(group_id: int, current_user: User = Depends(get_current_user
 
         cursor.execute(
             """
-            SELECT id, group_chat_id, group_name, language, night_mode_active, COALESCE(pause_active, 0)
+            SELECT id, group_chat_id, group_name, language, COALESCE(night_mode_enabled, 0), COALESCE(pause_active, 0)
             FROM group_data
             WHERE id = ?
         """,
@@ -198,7 +198,7 @@ async def get_group(group_id: int, current_user: User = Depends(get_current_user
             group_chat_id=row[1],
             group_name=row[2],
             language=row[3],
-            night_mode_active=bool(row[4]),
+            night_mode_enabled=bool(row[4]),
             pause_active=bool(row[5]),
         )
     except Exception as e:
@@ -209,19 +209,19 @@ async def get_group(group_id: int, current_user: User = Depends(get_current_user
 async def update_group(
     update: GroupUpdate, current_user: User = Depends(get_current_user)
 ):
-    """Update group field (night_mode_active only updates database for auto scheduling)"""
+    """Update group field (night_mode_enabled only updates database for auto scheduling)"""
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
 
-        allowed_fields = ["language", "night_mode_active"]
+        allowed_fields = ["language", "night_mode_enabled"]
         if update.field not in allowed_fields:
             raise HTTPException(status_code=400, detail="Invalid field")
 
-        # Night mode now only updates the database setting for automatic scheduling
+        # Night mode enabled now only updates the database setting for automatic scheduling
         # No immediate Telegram API calls - the bot's scheduler will handle it based on configured times
 
-        if update.field == "night_mode_active":
+        if update.field == "night_mode_enabled":
             status = "enabled" if update.value else "disabled"
             logger.info(
                 f"[WebUI] Auto Night Mode {status} for GROUP CHAT ID: {update.group_chat_id}"

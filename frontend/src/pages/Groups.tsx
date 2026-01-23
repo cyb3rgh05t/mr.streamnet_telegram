@@ -27,7 +27,7 @@ interface GroupItem {
   group_chat_id: number;
   group_name?: string;
   language?: string;
-  night_mode_active: boolean;
+  night_mode_enabled: boolean;
   pause_active: boolean;
   stats?: GroupStats;
 }
@@ -89,13 +89,13 @@ export default function Groups() {
     try {
       await api.post("/groups/update", {
         group_chat_id: group.group_chat_id,
-        field: "night_mode_active",
-        value: !group.night_mode_active,
+        field: "night_mode_enabled",
+        value: !group.night_mode_enabled,
       });
 
       const updatedGroups = groups.map((g) =>
         g.id === group.id
-          ? { ...g, night_mode_active: !g.night_mode_active }
+          ? { ...g, night_mode_enabled: !g.night_mode_enabled }
           : g,
       );
 
@@ -203,18 +203,18 @@ export default function Groups() {
                       <button
                         onClick={() => toggleNightMode(group)}
                         className={`btn btn-sm ${
-                          group.night_mode_active
+                          group.night_mode_enabled
                             ? "btn-warning"
                             : "btn-outline"
                         }`}
                         title={
-                          group.night_mode_active
+                          group.night_mode_enabled
                             ? "Disable auto night mode"
                             : "Enable auto night mode"
                         }
                       >
                         <FontAwesomeIcon icon={faMoon} />
-                        {group.night_mode_active ? "Auto" : "Manual"}
+                        {group.night_mode_enabled ? "Auto" : "Manual"}
                       </button>
                     </div>
                   </div>
@@ -266,18 +266,18 @@ export default function Groups() {
                             className={`stat-value ${
                               group.pause_active
                                 ? "text-danger"
-                                : group.night_mode_active
+                                : group.night_mode_enabled
                                   ? "text-warning"
                                   : "text-success"
                             }`}
                           >
                             {group.pause_active
                               ? "Paused"
-                              : group.night_mode_active
+                              : group.night_mode_enabled
                                 ? "Auto Night Mode"
                                 : "Active"}
                           </span>
-                          {group.night_mode_active &&
+                          {group.night_mode_enabled &&
                             nightModeSettings &&
                             !group.pause_active && (
                               <span className="stat-time">

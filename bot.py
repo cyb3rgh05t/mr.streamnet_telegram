@@ -289,6 +289,15 @@ def init_db():
             except sqlite3.OperationalError:
                 pass  # Column already exists
 
+            # Add night_mode_enabled column if it doesn't exist (for existing databases)
+            # This tracks if the user has ENABLED auto night mode (separate from night_mode_active which tracks current state)
+            try:
+                cursor.execute(
+                    "ALTER TABLE group_data ADD COLUMN night_mode_enabled BOOLEAN DEFAULT 0"
+                )
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+
             # Create dashboard_cache table for persistent storage
             cursor.execute(
                 """CREATE TABLE IF NOT EXISTS dashboard_cache (
@@ -443,11 +452,13 @@ def get_night_mode_info(group_chat_id):
     with sqlite3.connect(DATABASE_FILE) as conn:
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT night_mode_message_id, night_mode_active FROM group_data WHERE group_chat_id = ?",
+            "SELECT night_mode_message_id, night_mode_active, night_mode_enabled FROM group_data WHERE group_chat_id = ?",
             (group_chat_id,),
         )
         row = cursor.fetchone()
-        return row if row else (None, False)  # Return None and False if not found
+        if row:
+            return row[0], row[1], row[2] if len(row) > 2 else 0
+        return None, False, False  # Return None, False, False if not found
 
 
 # Timezone configuration
@@ -1385,6 +1396,12 @@ async def night_mode_checker(context):
     if isinstance(GROUP_CHAT_ID, tuple):
         GROUP_CHAT_ID = GROUP_CHAT_ID[0]  # Extract only the chat ID part
 
+    # Check if auto night mode is enabled for this group
+    _, _, night_mode_enabled = get_night_mode_info(GROUP_CHAT_ID)
+    if not night_mode_enabled:
+        # Auto night mode is disabled, skip checking
+        return False
+
     # Retrieve the group name
     group_name = get_group_name(GROUP_CHAT_ID)
 
@@ -1401,7 +1418,7 @@ async def night_mode_checker(context):
         logger.warning("GROUP CHAT ID is needed for NIGHT MODE")
         logger.warning("Please set it using '/set_group_id' <-----")
         logger.warning("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-        return
+        return False
 
     logger.info(
         f"NIGHT MODE CHECKER started for GROUP CHAT ID: '{GROUP_CHAT_ID}' in GROUP: '{group_name}'"
@@ -1759,12 +1776,13 @@ def run_bot():
             initialize_group_data()
 
             # Assume GROUP_CHAT_ID has already been set through /set_group_id
-            night_mode_message_id, night_mode_active = get_night_mode_info(
-                GROUP_CHAT_ID
+            night_mode_message_id, night_mode_active, night_mode_enabled = (
+                get_night_mode_info(GROUP_CHAT_ID)
             )
             group_name = get_group_name(GROUP_CHAT_ID)  # Retrieve the group name
 
             # Startup check: Correct night mode status based on current time
+            # Only correct if auto night mode is ENABLED by the user
             now = get_current_time().time()
             night_mode_start, night_mode_end = get_night_mode_times()
 
@@ -1776,47 +1794,51 @@ def run_bot():
                 # Case where night mode crosses midnight
                 should_be_active = now >= night_mode_start or now < night_mode_end
 
-            # Correct database if status is wrong
-            if should_be_active and not night_mode_active:
-                logger.warning(
-                    f"→ NIGHT MODE status correction: Should be ACTIVE but DB says INACTIVE. Correcting..."
-                )
-                with sqlite3.connect(DATABASE_FILE) as conn:
-                    cursor = conn.cursor()
-                    cursor.execute(
-                        "UPDATE group_data SET night_mode_active = 1 WHERE group_chat_id = ?",
-                        (GROUP_CHAT_ID,),
+            # Only correct if auto night mode feature is enabled
+            if night_mode_enabled:
+                # Correct database if status is wrong
+                if should_be_active and not night_mode_active:
+                    logger.warning(
+                        f"→ NIGHT MODE status correction: Should be ACTIVE but DB says INACTIVE. Correcting..."
                     )
-                    conn.commit()
-                night_mode_active = True
-            elif not should_be_active and night_mode_active:
-                logger.warning(
-                    f"→ NIGHT MODE status correction: Should be INACTIVE but DB says ACTIVE. Correcting..."
-                )
-                with sqlite3.connect(DATABASE_FILE) as conn:
-                    cursor = conn.cursor()
-                    cursor.execute(
-                        "UPDATE group_data SET night_mode_active = 0 WHERE group_chat_id = ?",
-                        (GROUP_CHAT_ID,),
+                    with sqlite3.connect(DATABASE_FILE) as conn:
+                        cursor = conn.cursor()
+                        cursor.execute(
+                            "UPDATE group_data SET night_mode_active = 1 WHERE group_chat_id = ?",
+                            (GROUP_CHAT_ID,),
+                        )
+                        conn.commit()
+                    night_mode_active = True
+                elif not should_be_active and night_mode_active:
+                    logger.warning(
+                        f"→ NIGHT MODE status correction: Should be INACTIVE but DB says ACTIVE. Correcting..."
                     )
-                    conn.commit()
-                night_mode_active = False
+                    with sqlite3.connect(DATABASE_FILE) as conn:
+                        cursor = conn.cursor()
+                        cursor.execute(
+                            "UPDATE group_data SET night_mode_active = 0 WHERE group_chat_id = ?",
+                            (GROUP_CHAT_ID,),
+                        )
+                        conn.commit()
+                    night_mode_active = False
+
+            # Log night mode configuration
+            logger.info(
+                f"→ NIGHT MODE set from '{NIGHTMODE_START}' to '{NIGHTMODE_END}'"
+            )
 
             # Log whether night mode is currently active
-            if night_mode_active:
-                logger.info(
-                    f"→ NIGHT MODE set from '{NIGHTMODE_START}' to '{NIGHTMODE_END}'"
-                )
-                logger.info(
-                    f"→ NIGHT MODE is currently ACTIVE for GROUP CHAT ID: '{GROUP_CHAT_ID}' in GROUP: '{group_name}' and MESSAGE ID: '{night_mode_message_id}'"
-                )
+            if night_mode_enabled:
+                if night_mode_active:
+                    logger.info(
+                        f"→ AUTO NIGHT MODE is ENABLED and currently ACTIVE for GROUP: '{group_name}' with MESSAGE ID: '{night_mode_message_id}'"
+                    )
+                else:
+                    logger.info(
+                        f"→ AUTO NIGHT MODE is ENABLED but currently INACTIVE (outside scheduled time)"
+                    )
             else:
-                logger.info(
-                    f"→ NIGHT MODE set from '{NIGHTMODE_START}' to '{NIGHTMODE_END}'"
-                )
-                logger.info(
-                    f"→ NIGHT MODE is currently INACTIVE with MESSAGE ID: '{night_mode_message_id}'"
-                )
+                logger.info(f"→ AUTO NIGHT MODE is DISABLED")
 
             application = ApplicationBuilder().token(TOKEN).build()
 

@@ -397,7 +397,8 @@ def get_group_stats() -> GroupStats:
         )
         total = cursor.fetchone()[0]
 
-        cursor.execute("SELECT COUNT(*) FROM group_data WHERE night_mode_active = 1")
+        # Count groups with auto night mode enabled (user preference, not current active state)
+        cursor.execute("SELECT COUNT(*) FROM group_data WHERE night_mode_enabled = 1")
         night_mode = cursor.fetchone()[0]
 
         conn.close()
