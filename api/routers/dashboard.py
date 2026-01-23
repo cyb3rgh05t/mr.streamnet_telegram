@@ -146,8 +146,11 @@ def update_background_data():
                 if response.status_code == 200:
                     sonarr_total = len(response.json())
                     sonarr_status = "running"
-            except:
-                pass
+                    logger.debug(f"Sonarr API success: {sonarr_total} series")
+                else:
+                    logger.warning(f"Sonarr API returned status {response.status_code}")
+            except Exception as e:
+                logger.warning(f"Sonarr API error: {e}")
 
         # Radarr
         if config.get("radarr", {}).get("URL") and config.get("radarr", {}).get(
@@ -163,13 +166,16 @@ def update_background_data():
                 if response.status_code == 200:
                     radarr_total = len(response.json())
                     radarr_status = "running"
-            except:
-                pass
+                    logger.debug(f"Radarr API success: {radarr_total} movies")
+                else:
+                    logger.warning(f"Radarr API returned status {response.status_code}")
+            except Exception as e:
+                logger.warning(f"Radarr API error: {e}")
 
         _cache["sonarr_status"] = sonarr_status
         _cache["radarr_status"] = radarr_status
 
-        # Save to database
+        # Save to database (counts AND status)
         try:
             conn = get_db_connection()
             cursor = conn.cursor()
@@ -181,10 +187,19 @@ def update_background_data():
                 "INSERT OR REPLACE INTO dashboard_cache (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)",
                 ("radarr_total", radarr_total),
             )
+            # Store status as 1=running, 0=stopped
+            cursor.execute(
+                "INSERT OR REPLACE INTO dashboard_cache (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)",
+                ("sonarr_status", 1 if sonarr_status == "running" else 0),
+            )
+            cursor.execute(
+                "INSERT OR REPLACE INTO dashboard_cache (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)",
+                ("radarr_status", 1 if radarr_status == "running" else 0),
+            )
             conn.commit()
             conn.close()
             logger.debug(
-                f"Background update: Sonarr={sonarr_total}, Radarr={radarr_total}"
+                f"Background update: Sonarr={sonarr_total} ({sonarr_status}), Radarr={radarr_total} ({radarr_status})"
             )
         except Exception as e:
             logger.debug(f"Error saving to database: {e}")
@@ -420,8 +435,35 @@ def get_system_resources() -> SystemResources:
 
 
 def get_service_status_fast() -> List[ServiceItem]:
-    """Get service status (fast, from cache)"""
+    """Get service status (fast, from cache or database)"""
     bot = get_bot_instance()
+
+    # Get status from cache, fallback to database
+    sonarr_status = _cache.get("sonarr_status")
+    radarr_status = _cache.get("radarr_status")
+
+    # If cache is empty, load from database
+    if sonarr_status is None or radarr_status is None:
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT key, value FROM dashboard_cache WHERE key IN ('sonarr_status', 'radarr_status')"
+            )
+            for row in cursor.fetchall():
+                if row[0] == "sonarr_status":
+                    sonarr_status = "running" if row[1] == 1 else "stopped"
+                elif row[0] == "radarr_status":
+                    radarr_status = "running" if row[1] == 1 else "stopped"
+            conn.close()
+        except:
+            pass
+
+    # Default to unknown if still not set
+    if sonarr_status is None:
+        sonarr_status = "unknown"
+    if radarr_status is None:
+        radarr_status = "unknown"
 
     return [
         ServiceItem(
@@ -436,12 +478,12 @@ def get_service_status_fast() -> List[ServiceItem]:
         ),
         ServiceItem(
             name="Sonarr",
-            status=_cache.get("sonarr_status", "unknown"),
+            status=sonarr_status,
             icon="fa-tv",
         ),
         ServiceItem(
             name="Radarr",
-            status=_cache.get("radarr_status", "unknown"),
+            status=radarr_status,
             icon="fa-film",
         ),
     ]

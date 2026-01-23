@@ -1764,6 +1764,44 @@ def run_bot():
             )
             group_name = get_group_name(GROUP_CHAT_ID)  # Retrieve the group name
 
+            # Startup check: Correct night mode status based on current time
+            now = get_current_time().time()
+            night_mode_start, night_mode_end = get_night_mode_times()
+
+            # Determine if we should be in night mode right now
+            if night_mode_start < night_mode_end:
+                # Normal case: night mode doesn't cross midnight
+                should_be_active = now >= night_mode_start and now < night_mode_end
+            else:
+                # Case where night mode crosses midnight
+                should_be_active = now >= night_mode_start or now < night_mode_end
+
+            # Correct database if status is wrong
+            if should_be_active and not night_mode_active:
+                logger.warning(
+                    f"→ NIGHT MODE status correction: Should be ACTIVE but DB says INACTIVE. Correcting..."
+                )
+                with sqlite3.connect(DATABASE_FILE) as conn:
+                    cursor = conn.cursor()
+                    cursor.execute(
+                        "UPDATE group_data SET night_mode_active = 1 WHERE group_chat_id = ?",
+                        (GROUP_CHAT_ID,),
+                    )
+                    conn.commit()
+                night_mode_active = True
+            elif not should_be_active and night_mode_active:
+                logger.warning(
+                    f"→ NIGHT MODE status correction: Should be INACTIVE but DB says ACTIVE. Correcting..."
+                )
+                with sqlite3.connect(DATABASE_FILE) as conn:
+                    cursor = conn.cursor()
+                    cursor.execute(
+                        "UPDATE group_data SET night_mode_active = 0 WHERE group_chat_id = ?",
+                        (GROUP_CHAT_ID,),
+                    )
+                    conn.commit()
+                night_mode_active = False
+
             # Log whether night mode is currently active
             if night_mode_active:
                 logger.info(

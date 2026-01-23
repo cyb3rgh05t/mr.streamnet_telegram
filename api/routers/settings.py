@@ -6,12 +6,20 @@ from typing import Dict, Any
 import json
 import os
 import sys
+import threading
+import time
+import logging
+
+logger = logging.getLogger(__name__)
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 from api.routers.auth import get_current_user, User
 
 router = APIRouter()
+
+# Flag to track if restart is pending
+_restart_pending = False
 
 
 class SettingsData(BaseModel):
@@ -111,9 +119,40 @@ async def save_settings(
         if "DEFAULT_LANGUAGE" in settings.tmdb:
             update_tmdb_language_in_db(settings.tmdb["DEFAULT_LANGUAGE"])
 
-        return {"success": True, "message": "Settings saved successfully"}
+        # Schedule bot restart in background
+        logger.info("[WebUI] Settings saved - scheduling bot restart in 2 seconds...")
+        threading.Thread(target=schedule_bot_restart, daemon=True).start()
+
+        return {
+            "success": True,
+            "message": "Settings saved successfully. Bot is restarting...",
+            "restarting": True,
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+def schedule_bot_restart():
+    """Schedule a bot restart after a short delay"""
+    global _restart_pending
+
+    if _restart_pending:
+        return
+
+    _restart_pending = True
+
+    # Wait 2 seconds to allow the API response to be sent
+    time.sleep(2)
+
+    logger.info("[WebUI] Restarting bot process...")
+
+    # Restart the Python process
+    try:
+        python = sys.executable
+        os.execv(python, [python] + sys.argv)
+    except Exception as e:
+        logger.error(f"[WebUI] Failed to restart bot: {e}")
+        _restart_pending = False
 
 
 def update_tmdb_language_in_db(language: str):

@@ -28,6 +28,7 @@ export default function Settings() {
   const [settings, setSettings] = useState<SettingsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [restarting, setRestarting] = useState(false);
   const [message, setMessage] = useState("");
   const [showSecrets, setShowSecrets] = useState({
     botToken: false,
@@ -75,11 +76,23 @@ export default function Settings() {
     setMessage("");
 
     try {
-      await api.post("/settings/save", settings);
+      const response = await api.post("/settings/save", settings);
       // Update cache after successful save
       cache.set("settings", settings, CACHE_TTL);
-      setMessage("Settings saved successfully!");
-      setTimeout(() => setMessage(""), 3000);
+
+      // Check if bot is restarting
+      if (response.data.restarting) {
+        setRestarting(true);
+        setMessage("Settings saved! Bot is restarting...");
+
+        // Wait for bot to restart and reload page
+        setTimeout(() => {
+          window.location.reload();
+        }, 5000);
+      } else {
+        setMessage("Settings saved successfully!");
+        setTimeout(() => setMessage(""), 3000);
+      }
     } catch (error) {
       setMessage("Failed to save settings");
     } finally {
@@ -117,19 +130,40 @@ export default function Settings() {
         </div>
         <button
           onClick={handleSave}
-          disabled={saving}
+          disabled={saving || restarting}
           className="btn btn-primary"
         >
           <FontAwesomeIcon icon={faSave} />
-          {saving ? " Saving..." : " Save Settings"}
+          {restarting
+            ? " Restarting..."
+            : saving
+              ? " Saving..."
+              : " Save Settings"}
         </button>
       </div>
 
       {message && (
         <div
-          className={`save-status ${message.includes("success") ? "save-status-success" : "save-status-error"}`}
+          className={`save-status ${message.includes("success") || message.includes("restarting") ? "save-status-success" : "save-status-error"}`}
         >
           {message}
+        </div>
+      )}
+
+      {restarting && (
+        <div
+          className="card"
+          style={{
+            background: "var(--warning)",
+            color: "#000",
+            textAlign: "center",
+            padding: "1rem",
+          }}
+        >
+          <p>
+            <strong>🔄 Bot is restarting...</strong>
+          </p>
+          <p>Page will reload automatically in a few seconds.</p>
         </div>
       )}
 
