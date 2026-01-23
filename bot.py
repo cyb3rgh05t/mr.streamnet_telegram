@@ -30,6 +30,10 @@ from telegram.ext import (
 import sys
 import threading
 import uvicorn
+from colorama import Fore, Style, init
+
+# Initialize colorama for Windows support
+init(autoreset=True)
 
 # Configurations
 CONFIG_DIR = "config"
@@ -104,6 +108,27 @@ WEB_ENABLED = config.get("web", {}).get("ENABLED", False)
 WEB_HOST = config.get("web", {}).get("HOST", "0.0.0.0")
 WEB_PORT = int(os.environ.get("WEB_PORT", config.get("web", {}).get("PORT", 8000)))
 
+
+# Custom colored formatter
+class ColoredFormatter(logging.Formatter):
+    """Custom formatter with colors for different log levels"""
+
+    COLORS = {
+        "DEBUG": Fore.GREEN,
+        "INFO": Fore.BLUE,
+        "WARNING": Fore.YELLOW,
+        "ERROR": Fore.RED,
+        "CRITICAL": Fore.RED + Style.BRIGHT,
+    }
+
+    def format(self, record):
+        # Get the color for this log level
+        log_color = self.COLORS.get(record.levelname, "")
+        # Format the level name with color
+        record.levelname = f"{log_color}{record.levelname}{Style.RESET_ALL}"
+        return super().format(record)
+
+
 # Configure the bot logger
 logger = logging.getLogger("bot")
 
@@ -113,11 +138,28 @@ apscheduler_logger.setLevel(
     logging.WARNING
 )  # Set it to WARNING or ERROR to suppress INFO logs
 
-# Existing basic configuration for the bot logs
+# Create handlers with colored formatter
+console_handler = logging.StreamHandler()
+console_handler.setFormatter(
+    ColoredFormatter(
+        fmt="[%(asctime)s] [%(levelname)s]   %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+)
+
+# File handler without colors
+file_handler = logging.FileHandler(os.path.join(LOGS_DIR, "bot.log"))
+file_handler.setFormatter(
+    logging.Formatter(
+        fmt="[%(asctime)s] [%(levelname)s]   %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+)
+
+# Configure root logger
 logging.basicConfig(
-    format="[%(asctime)s] [%(levelname)s]   %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-    level=getattr(logging, "LOG_LEVEL", logging.INFO),  # Use appropriate log level
+    level=getattr(logging, LOG_LEVEL, logging.INFO),
+    handlers=[console_handler, file_handler],
 )
 
 # Create an asyncio lock for sequential logging
@@ -252,7 +294,7 @@ def log_config_entries(config):
                     sensitive_key in key.upper() for sensitive_key in sensitive_keys
                 ):
                     value = redact_sensitive_info(value)
-                logger.info(f"  {key}: {value}")
+                logger.info(f"  → {key}: {value}")
         else:
             logger.info(f"{section}: {entries}")
             logger.info("=====================================================")
@@ -265,7 +307,7 @@ def configure_bot(TOKEN, TIMEZONE="Europe/Berlin"):
     # Log the successful retrieval of the token with only the first and last 4 characters visible
     if TOKEN:
         redacted_token = redact_sensitive_info(TOKEN)
-        logger.info(f"TOKEN retrieved: '{redacted_token}'")
+        logger.info(f"→ TOKEN retrieved: '{redacted_token}'")
     else:
         logger.error(f"Failed to retrieve BOT TOKEN from config. <-----")
         raise ValueError("BOT TOKEN is missing or invalid.")
@@ -273,7 +315,7 @@ def configure_bot(TOKEN, TIMEZONE="Europe/Berlin"):
     # Timezone configuration
     try:
         TIMEZONE_OBJ = ZoneInfo(TIMEZONE)
-        logger.info(f"TIMEZONE is set to '{TIMEZONE}'.")
+        logger.info(f"→ TIMEZONE is set to '{TIMEZONE}'.")
     except Exception as e:
         logger.error("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
         logger.error(f"Invalid TIMEZONE '{TIMEZONE}' in config.json <-----")
@@ -325,10 +367,10 @@ def initialize_group_data():
         logger.warning("Please set it using '/set_group_id' <-----")
         logger.warning("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
         logger.info("")
-        logger.info(f"TMDb LANGUAGE is set to: '{LANGUAGE}'")
+        logger.info(f"→ TMDb LANGUAGE is set to: '{LANGUAGE}'")
     else:
-        logger.info(f"GROUP CHAT ID is set to: '{GROUP_CHAT_ID}'")
-        logger.info(f"TMDb LANGUAGE is set to: '{LANGUAGE}'")
+        logger.info(f"→ GROUP CHAT ID is set to: '{GROUP_CHAT_ID}'")
+        logger.info(f"→ TMDb LANGUAGE is set to: '{LANGUAGE}'")
 
 
 # Load group name
@@ -1642,8 +1684,8 @@ def run_bot():
         # Log bot information asynchronously to ensure order
         if version_info:
             logger.info("=====================================================")
-            logger.info(f"Version: {version_info.get('Version', 'Unknown')}")
-            logger.info(f"Author: {version_info.get('Author', 'Unknown')}")
+            logger.info(f"→ Version: {version_info.get('Version', 'Unknown')}")
+            logger.info(f"→ Author: {version_info.get('Author', 'Unknown')}")
             logger.info("=====================================================")
             logger.info(f"To support this project, please visit")
             logger.info(f"https://github.com/cyb3rgh05t/telegram-bot")
@@ -1679,17 +1721,17 @@ def run_bot():
             # Log whether night mode is currently active
             if night_mode_active:
                 logger.info(
-                    f"NIGHT MODE set from '{NIGHTMODE_START}' to '{NIGHTMODE_END}'"
+                    f"→ NIGHT MODE set from '{NIGHTMODE_START}' to '{NIGHTMODE_END}'"
                 )
                 logger.info(
-                    f"NIGHT MODE is currently ACTIVE for GROUP CHAT ID: '{GROUP_CHAT_ID}' in GROUP: '{group_name}' and MESSAGE ID: '{night_mode_message_id}'"
+                    f"→ NIGHT MODE is currently ACTIVE for GROUP CHAT ID: '{GROUP_CHAT_ID}' in GROUP: '{group_name}' and MESSAGE ID: '{night_mode_message_id}'"
                 )
             else:
                 logger.info(
-                    f"NIGHT MODE set from '{NIGHTMODE_START}' to '{NIGHTMODE_END}'"
+                    f"→ NIGHT MODE set from '{NIGHTMODE_START}' to '{NIGHTMODE_END}'"
                 )
                 logger.info(
-                    f"NIGHT MODE is currently INACTIVE with MESSAGE ID: '{night_mode_message_id}'"
+                    f"→ NIGHT MODE is currently INACTIVE with MESSAGE ID: '{night_mode_message_id}'"
                 )
 
             application = ApplicationBuilder().token(TOKEN).build()
@@ -1764,7 +1806,7 @@ def start_web_api(bot_instance):
         set_bot_instance(bot_instance, bot_start_time)
 
         logger.info("=====================================================")
-        logger.info(f"Starting Web UI on http://{WEB_HOST}:{WEB_PORT}")
+        logger.info(f"→ Starting Web UI on http://{WEB_HOST}:{WEB_PORT}")
         logger.info("-----------")
 
         # Run uvicorn server
