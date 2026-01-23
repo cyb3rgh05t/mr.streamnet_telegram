@@ -438,12 +438,15 @@ def get_service_status_fast() -> List[ServiceItem]:
     """Get service status (fast, from cache or database)"""
     bot = get_bot_instance()
 
-    # Get status from cache, fallback to database
+    # Get status from cache first
     sonarr_status = _cache.get("sonarr_status")
     radarr_status = _cache.get("radarr_status")
 
-    # If cache is empty, load from database
-    if sonarr_status is None or radarr_status is None:
+    # If cache values are not proper status strings, load from database
+    if sonarr_status not in ("running", "stopped") or radarr_status not in (
+        "running",
+        "stopped",
+    ):
         try:
             conn = get_db_connection()
             cursor = conn.cursor()
@@ -452,17 +455,23 @@ def get_service_status_fast() -> List[ServiceItem]:
             )
             for row in cursor.fetchall():
                 if row[0] == "sonarr_status":
-                    sonarr_status = "running" if row[1] == 1 else "stopped"
+                    db_status = "running" if row[1] == 1 else "stopped"
+                    if sonarr_status not in ("running", "stopped"):
+                        sonarr_status = db_status
+                    _cache["sonarr_status"] = db_status  # Update cache
                 elif row[0] == "radarr_status":
-                    radarr_status = "running" if row[1] == 1 else "stopped"
+                    db_status = "running" if row[1] == 1 else "stopped"
+                    if radarr_status not in ("running", "stopped"):
+                        radarr_status = db_status
+                    _cache["radarr_status"] = db_status  # Update cache
             conn.close()
-        except:
-            pass
+        except Exception as e:
+            logger.debug(f"Error loading service status from database: {e}")
 
     # Default to unknown if still not set
-    if sonarr_status is None:
+    if sonarr_status not in ("running", "stopped"):
         sonarr_status = "unknown"
-    if radarr_status is None:
+    if radarr_status not in ("running", "stopped"):
         radarr_status = "unknown"
 
     return [
