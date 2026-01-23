@@ -1416,6 +1416,18 @@ async def night_mode_checker(context):
                 f"NIGHT MODE activated for GROUP CHAT ID: '{GROUP_CHAT_ID}' in GROUP: '{group_name}'"
             )
 
+            # Delete old night mode message if exists
+            if night_mode_message_id:
+                try:
+                    await context.bot.delete_message(
+                        chat_id=GROUP_CHAT_ID, message_id=night_mode_message_id
+                    )
+                    logger.info(
+                        f"Old night mode message deleted for GROUP CHAT ID: '{GROUP_CHAT_ID}'"
+                    )
+                except telegram.error.BadRequest as e:
+                    logger.debug(f"Could not delete old night mode message: {e}")
+
             # Send the initial night mode activation message and store its ID
             try:
                 message = await context.bot.send_message(
@@ -1446,6 +1458,18 @@ async def night_mode_checker(context):
             logger.info(
                 f"NIGHT MODE activated for GROUP CHAT ID: '{GROUP_CHAT_ID}' in GROUP: '{group_name}'"
             )
+
+            # Delete old night mode message if exists
+            if night_mode_message_id:
+                try:
+                    await context.bot.delete_message(
+                        chat_id=GROUP_CHAT_ID, message_id=night_mode_message_id
+                    )
+                    logger.info(
+                        f"Old night mode message deleted for GROUP CHAT ID: '{GROUP_CHAT_ID}'"
+                    )
+                except telegram.error.BadRequest as e:
+                    logger.debug(f"Could not delete old night mode message: {e}")
 
             # Send activation message and store ID (same logic as above)
             try:
@@ -1481,39 +1505,37 @@ async def night_mode_checker(context):
         try:
             if night_mode_message_id:
                 # Delete the night mode activation message
-                await context.bot.delete_message(
-                    chat_id=GROUP_CHAT_ID, message_id=night_mode_message_id
-                )
-                logger.info(
-                    f"NIGHT MODE ACTIVATION MESSAGE deleted for GROUP CHAT ID: '{GROUP_CHAT_ID}'"
-                )
-
-                # Send new message indicating night mode has ended
-                new_message = await context.bot.send_message(
-                    chat_id=GROUP_CHAT_ID,
-                    text="☀️ ENDE DES NACHTMODUS.\n\n✅ Ab jetzt kannst du wieder Mitteilungen in der Gruppe senden.",
-                )
-
-                # Optionally update the database to clear the message ID
-                update_night_mode_message_id(GROUP_CHAT_ID, new_message.message_id)
-
-                # Update the database to set night_mode_active to 0 (False)
-                with sqlite3.connect(DATABASE_FILE) as conn:
-                    cursor = conn.cursor()
-                    cursor.execute(
-                        "UPDATE group_data SET night_mode_active = ? WHERE group_chat_id = ?",
-                        (0, GROUP_CHAT_ID),
+                try:
+                    await context.bot.delete_message(
+                        chat_id=GROUP_CHAT_ID, message_id=night_mode_message_id
                     )
-                    conn.commit()
+                    logger.info(
+                        f"NIGHT MODE ACTIVATION MESSAGE deleted for GROUP CHAT ID: '{GROUP_CHAT_ID}'"
+                    )
+                except telegram.error.BadRequest as e:
+                    logger.warning(f"Could not delete night mode message: {e}")
 
-            else:
-                logger.warning(
-                    f"No NIGHT MODE MESSAGE ID found to delete for GROUP CHAT ID: '{GROUP_CHAT_ID}' in GROUP: '{group_name}'"
+            # Send new message indicating night mode has ended
+            new_message = await context.bot.send_message(
+                chat_id=GROUP_CHAT_ID,
+                text="☀️ ENDE DES NACHTMODUS.\n\n✅ Ab jetzt kannst du wieder Mitteilungen in der Gruppe senden.",
+            )
+
+            # Update the database with new message ID
+            update_night_mode_message_id(GROUP_CHAT_ID, new_message.message_id)
+
+            # Update the database to set night_mode_active to 0 (False)
+            with sqlite3.connect(DATABASE_FILE) as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "UPDATE group_data SET night_mode_active = ? WHERE group_chat_id = ?",
+                    (0, GROUP_CHAT_ID),
                 )
+                conn.commit()
 
         except telegram.error.BadRequest as e:
             logger.error(
-                f"Failed to delete NIGHT MODE ACTIVATION MESSAGE for GROUP CHAT ID: '{GROUP_CHAT_ID}' in GROUP: '{group_name}': {e}"
+                f"Failed to send NIGHT MODE DEACTIVATION MESSAGE for GROUP CHAT ID: '{GROUP_CHAT_ID}' in GROUP: '{group_name}': {e}"
             )
 
     logger.info(
