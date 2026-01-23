@@ -281,6 +281,14 @@ def init_db():
             except sqlite3.OperationalError:
                 pass  # Column already exists
 
+            # Add admin_count column if it doesn't exist (for existing databases)
+            try:
+                cursor.execute(
+                    "ALTER TABLE group_data ADD COLUMN admin_count INTEGER DEFAULT 0"
+                )
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+
             # Create dashboard_cache table for persistent storage
             cursor.execute(
                 """CREATE TABLE IF NOT EXISTS dashboard_cache (

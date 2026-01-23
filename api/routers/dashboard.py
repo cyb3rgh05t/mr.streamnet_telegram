@@ -195,11 +195,76 @@ def update_background_data():
     _cache["last_update"] = time.time()
 
 
+def update_telegram_group_data():
+    """Background task to update Telegram group member/admin counts"""
+    import requests
+
+    bot = get_bot_instance()
+    if not bot or not hasattr(bot, "token"):
+        return
+
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        cursor.execute(
+            "SELECT group_chat_id FROM group_data WHERE group_chat_id IS NOT NULL"
+        )
+        groups = cursor.fetchall()
+
+        for (group_chat_id,) in groups:
+            member_count = 0
+            admin_count = 0
+
+            # Get member count
+            try:
+                response = requests.get(
+                    f"https://api.telegram.org/bot{bot.token}/getChatMemberCount",
+                    params={"chat_id": group_chat_id},
+                    timeout=5,
+                )
+                if response.status_code == 200:
+                    data = response.json()
+                    if data.get("ok"):
+                        member_count = data.get("result", 0)
+            except:
+                pass
+
+            # Get admin count
+            try:
+                response = requests.get(
+                    f"https://api.telegram.org/bot{bot.token}/getChatAdministrators",
+                    params={"chat_id": group_chat_id},
+                    timeout=5,
+                )
+                if response.status_code == 200:
+                    data = response.json()
+                    if data.get("ok"):
+                        admin_count = len(data.get("result", []))
+            except:
+                pass
+
+            # Update database
+            cursor.execute(
+                "UPDATE group_data SET member_count = ?, admin_count = ? WHERE group_chat_id = ?",
+                (member_count, admin_count, group_chat_id),
+            )
+
+        conn.commit()
+        conn.close()
+        logger.debug("Background update: Telegram group data refreshed")
+    except Exception as e:
+        logger.debug(f"Error updating Telegram group data: {e}")
+
+
 def background_update_loop():
-    """Continuous background update loop"""
+    """Continuous background update loop for all data"""
     while True:
         try:
+            # Update dashboard data (Sonarr, Radarr, latency)
             update_background_data()
+            # Update Telegram group data (member/admin counts)
+            update_telegram_group_data()
         except Exception as e:
             logger.debug(f"Background loop error: {e}")
         time.sleep(BACKGROUND_UPDATE_INTERVAL)
@@ -210,11 +275,14 @@ def start_background_task():
     global _background_task_started
     if not _background_task_started:
         _background_task_started = True
-        # Run first update immediately in background
+        # Run first update immediately in background (both dashboard and groups)
         threading.Thread(target=update_background_data, daemon=True).start()
+        threading.Thread(target=update_telegram_group_data, daemon=True).start()
         # Start continuous loop
         threading.Thread(target=background_update_loop, daemon=True).start()
-        logger.info("Dashboard background update task started")
+        logger.info(
+            "Background update tasks started (Dashboard + Telegram Groups, interval: 5min)"
+        )
 
 
 def get_bot_status_fast() -> BotStatus:

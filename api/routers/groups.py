@@ -119,11 +119,11 @@ async def get_groups(current_user: User = Depends(get_current_user)):
         conn = get_db_connection()
         cursor = conn.cursor()
 
-        # Include member_count from database
+        # Include member_count and admin_count from database
         cursor.execute(
             """
             SELECT id, group_chat_id, group_name, language, night_mode_active, 
-                   COALESCE(pause_active, 0), COALESCE(member_count, 0)
+                   COALESCE(pause_active, 0), COALESCE(member_count, 0), COALESCE(admin_count, 0)
             FROM group_data
             ORDER BY group_name
         """
@@ -136,13 +136,14 @@ async def get_groups(current_user: User = Depends(get_current_user)):
         total_members = 0
         for row in rows:
             member_count = row[6] if row[6] else 0
+            admin_count = row[7] if row[7] else 0
             total_members += member_count
 
             # Use cached stats from database instead of live API calls
             stats = (
                 GroupStats(
                     member_count=member_count,
-                    admin_count=0,  # Not tracked in DB
+                    admin_count=admin_count,
                     created_at=None,
                     last_activity=None,
                 )
@@ -361,7 +362,7 @@ async def pause_group(
 
 
 def refresh_member_counts_background():
-    """Background task to refresh member counts from Telegram API"""
+    """Background task to refresh member and admin counts from Telegram API"""
     import requests
 
     try:
@@ -383,6 +384,10 @@ def refresh_member_counts_background():
         groups = cursor.fetchall()
 
         for (group_chat_id,) in groups:
+            member_count = 0
+            admin_count = 0
+
+            # Get member count
             try:
                 response = requests.get(
                     f"https://api.telegram.org/bot{bot.token}/getChatMemberCount",
@@ -393,18 +398,34 @@ def refresh_member_counts_background():
                     data = response.json()
                     if data.get("ok"):
                         member_count = data.get("result", 0)
-                        cursor.execute(
-                            "UPDATE group_data SET member_count = ? WHERE group_chat_id = ?",
-                            (member_count, group_chat_id),
-                        )
             except:
                 pass
 
+            # Get admin count
+            try:
+                response = requests.get(
+                    f"https://api.telegram.org/bot{bot.token}/getChatAdministrators",
+                    params={"chat_id": group_chat_id},
+                    timeout=5,
+                )
+                if response.status_code == 200:
+                    data = response.json()
+                    if data.get("ok"):
+                        admin_count = len(data.get("result", []))
+            except:
+                pass
+
+            # Update database
+            cursor.execute(
+                "UPDATE group_data SET member_count = ?, admin_count = ? WHERE group_chat_id = ?",
+                (member_count, admin_count, group_chat_id),
+            )
+
         conn.commit()
         conn.close()
-        logger.info("[WebUI] Member counts refreshed from Telegram API")
+        logger.info("[WebUI] Member and admin counts refreshed from Telegram API")
     except Exception as e:
-        logger.error(f"[WebUI] Error refreshing member counts: {e}")
+        logger.error(f"[WebUI] Error refreshing counts: {e}")
 
 
 @router.post("/refresh")
