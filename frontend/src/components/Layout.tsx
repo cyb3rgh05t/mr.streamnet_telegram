@@ -103,6 +103,7 @@ export default function Layout() {
         icon: faSpinner,
         spin: true,
         title: "Checking for updates...",
+        text: "",
         clickable: false,
       };
     }
@@ -112,6 +113,7 @@ export default function Layout() {
         icon: faExclamationTriangle,
         spin: false,
         title: versionInfo.error,
+        text: "Error",
         clickable: true,
       };
     }
@@ -121,6 +123,7 @@ export default function Layout() {
         icon: faArrowUp,
         spin: false,
         title: `Update available: v${versionInfo.remote}`,
+        text: "Update",
         clickable: true,
       };
     }
@@ -129,6 +132,7 @@ export default function Layout() {
       icon: faCheck,
       spin: false,
       title: "Up to date",
+      text: "Up to date",
       clickable: false,
     };
   };
@@ -273,13 +277,19 @@ export default function Layout() {
                     icon={getBadgeContent().icon}
                     spin={getBadgeContent().spin}
                   />
+                  {getBadgeContent().text && (
+                    <span className="ml-1">{getBadgeContent().text}</span>
+                  )}
                 </span>
               )}
             </div>
 
             {authEnabled && (
-              <button onClick={logout} className="sidebar-logout">
-                <FontAwesomeIcon icon={faSignOutAlt} className="w-5 h-5" />
+              <button
+                onClick={logout}
+                className="mt-3 w-full flex items-center gap-2 px-4 py-2 text-text-muted hover:text-text hover:bg-white/10 rounded transition-colors text-sm"
+              >
+                <FontAwesomeIcon icon={faSignOutAlt} className="w-4 h-4" />
                 <span>Logout</span>
               </button>
             )}

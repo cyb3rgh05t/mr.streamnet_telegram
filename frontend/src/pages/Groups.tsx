@@ -6,9 +6,12 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faUsers,
   faMoon,
+  faPause,
+  faPlay,
   faLanguage,
   faUserShield,
   faChartBar,
+  faClock,
 } from "@fortawesome/free-solid-svg-icons";
 
 interface GroupStats {
@@ -24,7 +27,13 @@ interface GroupItem {
   group_name?: string;
   language?: string;
   night_mode_active: boolean;
+  pause_active: boolean;
   stats?: GroupStats;
+}
+
+interface NightModeSettings {
+  NIGHTMODE_START: string;
+  NIGHTMODE_END: string;
 }
 
 const CACHE_TTL = 2 * 60 * 1000; // 2 minutes
@@ -33,10 +42,24 @@ export default function Groups() {
   const cache = useCache();
   const [groups, setGroups] = useState<GroupItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [nightModeSettings, setNightModeSettings] =
+    useState<NightModeSettings | null>(null);
 
   useEffect(() => {
     fetchGroups();
+    fetchNightModeSettings();
   }, []);
+
+  const fetchNightModeSettings = async () => {
+    try {
+      const response = await api.get("/settings/");
+      if (response.data.nightmode) {
+        setNightModeSettings(response.data.nightmode);
+      }
+    } catch (error) {
+      console.error("Failed to fetch night mode settings:", error);
+    }
+  };
 
   const fetchGroups = async () => {
     // Check cache first
@@ -82,6 +105,25 @@ export default function Groups() {
     }
   };
 
+  const togglePause = async (group: GroupItem) => {
+    try {
+      await api.post("/groups/pause", {
+        group_chat_id: group.group_chat_id,
+        pause: !group.pause_active,
+      });
+
+      const updatedGroups = groups.map((g) =>
+        g.id === group.id ? { ...g, pause_active: !g.pause_active } : g,
+      );
+
+      setGroups(updatedGroups);
+      // Update cache with new data
+      cache.set("groups", updatedGroups, CACHE_TTL);
+    } catch (error) {
+      console.error("Failed to toggle pause:", error);
+    }
+  };
+
   if (loading) {
     return <LoadingSpinner message="Loading groups..." />;
   }
@@ -114,15 +156,38 @@ export default function Groups() {
                       </h3>
                       <p className="group-id">ID: {group.group_chat_id}</p>
                     </div>
-                    <button
-                      onClick={() => toggleNightMode(group)}
-                      className={`btn btn-sm ${
-                        group.night_mode_active ? "btn-warning" : "btn-outline"
-                      }`}
-                    >
-                      <FontAwesomeIcon icon={faMoon} />
-                      {group.night_mode_active ? "ON" : "OFF"}
-                    </button>
+                    <div className="group-actions">
+                      <button
+                        onClick={() => togglePause(group)}
+                        className={`btn btn-sm ${
+                          group.pause_active ? "btn-danger" : "btn-outline"
+                        }`}
+                        title={
+                          group.pause_active ? "Resume group" : "Pause group"
+                        }
+                      >
+                        <FontAwesomeIcon
+                          icon={group.pause_active ? faPlay : faPause}
+                        />
+                        {group.pause_active ? "Resume" : "Pause"}
+                      </button>
+                      <button
+                        onClick={() => toggleNightMode(group)}
+                        className={`btn btn-sm ${
+                          group.night_mode_active
+                            ? "btn-warning"
+                            : "btn-outline"
+                        }`}
+                        title={
+                          group.night_mode_active
+                            ? "Disable auto night mode"
+                            : "Enable auto night mode"
+                        }
+                      >
+                        <FontAwesomeIcon icon={faMoon} />
+                        {group.night_mode_active ? "Auto" : "Manual"}
+                      </button>
+                    </div>
                   </div>
 
                   {/* Statistics */}
@@ -155,7 +220,7 @@ export default function Groups() {
                           className="stat-icon"
                         />
                         <div className="stat-content">
-                          <span className="stat-label">Language</span>
+                          <span className="stat-label">TMDB Language</span>
                           <span className="stat-value">
                             {group.language || "en"}
                           </span>
@@ -170,13 +235,28 @@ export default function Groups() {
                           <span className="stat-label">Status</span>
                           <span
                             className={`stat-value ${
-                              group.night_mode_active
-                                ? "text-warning"
-                                : "text-success"
+                              group.pause_active
+                                ? "text-danger"
+                                : group.night_mode_active
+                                  ? "text-warning"
+                                  : "text-success"
                             }`}
                           >
-                            {group.night_mode_active ? "Paused" : "Active"}
+                            {group.pause_active
+                              ? "Paused"
+                              : group.night_mode_active
+                                ? "Auto Night Mode"
+                                : "Active"}
                           </span>
+                          {group.night_mode_active &&
+                            nightModeSettings &&
+                            !group.pause_active && (
+                              <span className="stat-time">
+                                <FontAwesomeIcon icon={faClock} />{" "}
+                                {nightModeSettings.NIGHTMODE_START} -{" "}
+                                {nightModeSettings.NIGHTMODE_END}
+                              </span>
+                            )}
                         </div>
                       </div>
                     </div>

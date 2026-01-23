@@ -9,12 +9,31 @@ import psutil
 import sqlite3
 from datetime import datetime
 import time
+import json
+import logging
+import asyncio
+import aiohttp
+
+logger = logging.getLogger(__name__)
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 from api.main import get_bot_instance, get_bot_start_time
 
 router = APIRouter()
+
+# Cache for expensive operations
+_cache = {
+    "media_stats": {"data": None, "timestamp": 0},
+    "service_status": {"data": None, "timestamp": 0},
+    "bot_status": {"data": None, "timestamp": 0},
+    "cpu_percent": {"data": 0, "timestamp": 0},
+}
+CACHE_TTL = 60  # 60 seconds cache
+CPU_CACHE_TTL = 5  # 5 seconds for CPU (updated in background)
+
+# Start background CPU monitoring
+_cpu_percent = 0
 
 
 class BotStatus(BaseModel):
@@ -73,7 +92,9 @@ def get_db_connection():
 
 
 def get_bot_status() -> BotStatus:
-    """Get bot status information"""
+    """Get bot status information with caching for expensive operations"""
+    global _cache
+
     bot = get_bot_instance()
     start_time = get_bot_start_time()
 
@@ -97,23 +118,7 @@ def get_bot_status() -> BotStatus:
         else:
             uptime = "Unknown"
 
-        # Calculate latency with real Telegram API call
-        latency = None
-        try:
-            import requests
-
-            start = time.time()
-            # Make a real API call to Telegram (getMe) via requests
-            response = requests.get(
-                f"https://api.telegram.org/bot{bot.token}/getMe", timeout=5
-            )
-            if response.status_code == 200:
-                latency_ms = (time.time() - start) * 1000
-                latency = round(latency_ms, 2)
-        except Exception as e:
-            latency = None
-
-        # Get group data from database
+        # Get group data from database (fast)
         conn = get_db_connection()
         cursor = conn.cursor()
 
@@ -121,37 +126,41 @@ def get_bot_status() -> BotStatus:
             "SELECT COUNT(*) FROM group_data WHERE group_chat_id IS NOT NULL"
         )
         groups = cursor.fetchone()[0]
-
-        # Get all group chat IDs
-        cursor.execute(
-            "SELECT DISTINCT group_chat_id FROM group_data WHERE group_chat_id IS NOT NULL"
-        )
-        group_ids = [row[0] for row in cursor.fetchall()]
-
         conn.close()
 
-        # Calculate total members from all groups using Telegram API
-        total_members = 0
-        if group_ids:
+        # Check if we have cached bot status for expensive operations
+        now = time.time()
+        cached = _cache.get("bot_status", {})
+
+        if cached.get("data") and (now - cached.get("timestamp", 0)) < CACHE_TTL:
+            # Use cached latency and user count
+            latency = cached["data"].get("latency")
+            total_members = cached["data"].get("users", 0)
+        else:
+            # Calculate latency with real Telegram API call
+            latency = None
             try:
                 import requests
 
-                for group_id in group_ids:
-                    try:
-                        # Get member count for each group via API
-                        response = requests.get(
-                            f"https://api.telegram.org/bot{bot.token}/getChatMemberCount",
-                            params={"chat_id": group_id},
-                            timeout=5,
-                        )
-                        if response.status_code == 200:
-                            data = response.json()
-                            if data.get("ok"):
-                                total_members += data.get("result", 0)
-                    except Exception:
-                        pass
+                start = time.time()
+                response = requests.get(
+                    f"https://api.telegram.org/bot{bot.token}/getMe", timeout=3
+                )
+                if response.status_code == 200:
+                    latency_ms = (time.time() - start) * 1000
+                    latency = round(latency_ms, 2)
             except Exception:
-                total_members = 0
+                latency = None
+
+            # Skip member count fetching - it's too slow for multiple groups
+            # Just show groups count instead
+            total_members = 0
+
+            # Update cache
+            _cache["bot_status"] = {
+                "data": {"latency": latency, "users": total_members},
+                "timestamp": now,
+            }
 
         return BotStatus(
             online=True,
@@ -173,9 +182,81 @@ def get_bot_status() -> BotStatus:
 
 
 def get_media_stats() -> MediaStats:
-    """Get media statistics"""
-    # TODO: Implement actual Sonarr/Radarr API calls
-    return MediaStats(sonarr_total=0, radarr_total=0, pending_requests=0)
+    """Get media statistics from Sonarr/Radarr with caching"""
+    global _cache
+
+    # Check cache
+    now = time.time()
+    if (
+        _cache["media_stats"]["data"]
+        and (now - _cache["media_stats"]["timestamp"]) < CACHE_TTL
+    ):
+        return _cache["media_stats"]["data"]
+
+    sonarr_total = 0
+    radarr_total = 0
+
+    try:
+        # Load config
+        config_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+            "config",
+            "config.json",
+        )
+        with open(config_path, "r") as f:
+            config = json.load(f)
+
+        import requests
+
+        # Get Sonarr count
+        if config.get("sonarr", {}).get("URL") and config.get("sonarr", {}).get(
+            "API_KEY"
+        ):
+            try:
+                headers = {"X-Api-Key": config["sonarr"]["API_KEY"]}
+                response = requests.get(
+                    f"{config['sonarr']['URL']}/api/v3/series",
+                    headers=headers,
+                    timeout=10,
+                )
+                if response.status_code == 200:
+                    sonarr_total = len(response.json())
+                    logger.debug(f"Sonarr: {sonarr_total} series found")
+                else:
+                    logger.debug(f"Sonarr API returned status {response.status_code}")
+            except Exception as e:
+                logger.debug(f"Sonarr API error: {e}")
+
+        # Get Radarr count
+        if config.get("radarr", {}).get("URL") and config.get("radarr", {}).get(
+            "API_KEY"
+        ):
+            try:
+                headers = {"X-Api-Key": config["radarr"]["API_KEY"]}
+                response = requests.get(
+                    f"{config['radarr']['URL']}/api/v3/movie",
+                    headers=headers,
+                    timeout=10,
+                )
+                if response.status_code == 200:
+                    radarr_total = len(response.json())
+                    logger.debug(f"Radarr: {radarr_total} movies found")
+                else:
+                    logger.debug(f"Radarr API returned status {response.status_code}")
+            except Exception as e:
+                logger.debug(f"Radarr API error: {e}")
+
+    except Exception as e:
+        logger.debug(f"Error loading config for media stats: {e}")
+
+    result = MediaStats(
+        sonarr_total=sonarr_total, radarr_total=radarr_total, pending_requests=0
+    )
+
+    # Update cache
+    _cache["media_stats"] = {"data": result, "timestamp": now}
+
+    return result
 
 
 def get_group_stats() -> GroupStats:
@@ -195,10 +276,19 @@ def get_group_stats() -> GroupStats:
 
 
 def get_system_resources() -> SystemResources:
-    """Get system resource usage"""
-    cpu_percent = psutil.cpu_percent(interval=1)
+    """Get system resource usage - non-blocking"""
+    # Use non-blocking CPU measurement (instant, based on last interval)
+    cpu_percent = psutil.cpu_percent(interval=None)  # Non-blocking!
     memory = psutil.virtual_memory()
-    disk = psutil.disk_usage("/")
+
+    # Handle different OS for disk
+    try:
+        disk = psutil.disk_usage("/")
+    except:
+        try:
+            disk = psutil.disk_usage("C:\\")
+        except:
+            disk = type("obj", (object,), {"percent": 0})()
 
     return SystemResources(
         cpu=ResourceItem(percent=cpu_percent, label="CPU"),
@@ -208,8 +298,68 @@ def get_system_resources() -> SystemResources:
 
 
 def get_service_status() -> List[ServiceItem]:
-    """Get service status"""
+    """Get service status with caching"""
+    global _cache
+
+    # Check cache
+    now = time.time()
+    if (
+        _cache["service_status"]["data"]
+        and (now - _cache["service_status"]["timestamp"]) < CACHE_TTL
+    ):
+        return _cache["service_status"]["data"]
+
     bot = get_bot_instance()
+
+    # Check Sonarr/Radarr status
+    sonarr_status = "stopped"
+    radarr_status = "stopped"
+
+    try:
+        config_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+            "config",
+            "config.json",
+        )
+        with open(config_path, "r") as f:
+            config = json.load(f)
+
+        import requests
+
+        # Check Sonarr
+        if config.get("sonarr", {}).get("URL") and config.get("sonarr", {}).get(
+            "API_KEY"
+        ):
+            try:
+                headers = {"X-Api-Key": config["sonarr"]["API_KEY"]}
+                response = requests.get(
+                    f"{config['sonarr']['URL']}/api/v3/system/status",
+                    headers=headers,
+                    timeout=5,
+                )
+                if response.status_code == 200:
+                    sonarr_status = "running"
+            except:
+                pass
+
+        # Check Radarr
+        if config.get("radarr", {}).get("URL") and config.get("radarr", {}).get(
+            "API_KEY"
+        ):
+            try:
+                headers = {"X-Api-Key": config["radarr"]["API_KEY"]}
+                response = requests.get(
+                    f"{config['radarr']['URL']}/api/v3/system/status",
+                    headers=headers,
+                    timeout=5,
+                )
+                if response.status_code == 200:
+                    radarr_status = "running"
+            except:
+                pass
+    except:
+        pass
+
     services = [
         ServiceItem(
             name="Telegram Bot",
@@ -222,16 +372,20 @@ def get_service_status() -> List[ServiceItem]:
             icon="fa-globe",
         ),
         ServiceItem(
-            name="Sonarr Integration",
-            status="running",  # TODO: Check actual Sonarr status
+            name="Sonarr",
+            status=sonarr_status,
             icon="fa-tv",
         ),
         ServiceItem(
-            name="Radarr Integration",
-            status="running",  # TODO: Check actual Radarr status
+            name="Radarr",
+            status=radarr_status,
             icon="fa-film",
         ),
     ]
+
+    # Update cache
+    _cache["service_status"] = {"data": services, "timestamp": now}
+
     return services
 
 

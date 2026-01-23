@@ -6,6 +6,9 @@ from typing import List, Optional, Any
 import sqlite3
 import os
 import sys
+import logging
+
+logger = logging.getLogger(__name__)
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
@@ -28,6 +31,7 @@ class GroupItem(BaseModel):
     group_name: Optional[str]
     language: Optional[str]
     night_mode_active: bool
+    pause_active: bool
     stats: Optional[GroupStats] = None
 
 
@@ -40,6 +44,11 @@ class GroupUpdate(BaseModel):
     group_chat_id: int
     field: str
     value: Any
+
+
+class GroupPause(BaseModel):
+    group_chat_id: int
+    pause: bool
 
 
 def get_db_connection():
@@ -110,7 +119,7 @@ async def get_groups(current_user: User = Depends(get_current_user)):
 
         cursor.execute(
             """
-            SELECT id, group_chat_id, group_name, language, night_mode_active
+            SELECT id, group_chat_id, group_name, language, night_mode_active, COALESCE(pause_active, 0)
             FROM group_data
             ORDER BY group_name
         """
@@ -129,6 +138,7 @@ async def get_groups(current_user: User = Depends(get_current_user)):
                     group_name=row[2],
                     language=row[3],
                     night_mode_active=bool(row[4]),
+                    pause_active=bool(row[5]),
                     stats=stats,
                 )
             )
@@ -147,7 +157,7 @@ async def get_group(group_id: int, current_user: User = Depends(get_current_user
 
         cursor.execute(
             """
-            SELECT id, group_chat_id, group_name, language, night_mode_active
+            SELECT id, group_chat_id, group_name, language, night_mode_active, COALESCE(pause_active, 0)
             FROM group_data
             WHERE id = ?
         """,
@@ -166,6 +176,7 @@ async def get_group(group_id: int, current_user: User = Depends(get_current_user
             group_name=row[2],
             language=row[3],
             night_mode_active=bool(row[4]),
+            pause_active=bool(row[5]),
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -175,7 +186,7 @@ async def get_group(group_id: int, current_user: User = Depends(get_current_user
 async def update_group(
     update: GroupUpdate, current_user: User = Depends(get_current_user)
 ):
-    """Update group field"""
+    """Update group field (night_mode_active only updates database for auto scheduling)"""
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -184,88 +195,14 @@ async def update_group(
         if update.field not in allowed_fields:
             raise HTTPException(status_code=400, detail="Invalid field")
 
-        # Handle night mode toggle with Telegram integration
+        # Night mode now only updates the database setting for automatic scheduling
+        # No immediate Telegram API calls - the bot's scheduler will handle it based on configured times
+
         if update.field == "night_mode_active":
-            bot = get_bot_instance()
-            if bot:
-                try:
-                    import requests
-
-                    # Check if we're enabling night mode
-                    if update.value:
-                        # Send pause message to group
-                        message_text = (
-                            "🌙 <b>Night Mode aktiviert</b>\n\n"
-                            "Die Gruppe befindet sich jetzt im Pausenmodus. "
-                            "Während dieser Zeit können nur Administratoren Nachrichten senden.\n\n"
-                            "Night Mode wird automatisch deaktiviert, wenn die konfigurierte Zeit endet."
-                        )
-
-                        requests.post(
-                            f"https://api.telegram.org/bot{bot.token}/sendMessage",
-                            json={
-                                "chat_id": update.group_chat_id,
-                                "text": message_text,
-                                "parse_mode": "HTML",
-                            },
-                            timeout=5,
-                        )
-
-                        # Restrict all members (only admins can send messages)
-                        requests.post(
-                            f"https://api.telegram.org/bot{bot.token}/setChatPermissions",
-                            json={
-                                "chat_id": update.group_chat_id,
-                                "permissions": {
-                                    "can_send_messages": False,
-                                    "can_send_media_messages": False,
-                                    "can_send_polls": False,
-                                    "can_send_other_messages": False,
-                                    "can_add_web_page_previews": False,
-                                    "can_change_info": False,
-                                    "can_invite_users": False,
-                                    "can_pin_messages": False,
-                                },
-                            },
-                            timeout=5,
-                        )
-                    else:
-                        # Send resume message
-                        message_text = (
-                            "☀️ <b>Night Mode deaktiviert</b>\n\n"
-                            "Die Gruppe ist wieder aktiv. Alle Mitglieder können nun wieder Nachrichten senden."
-                        )
-
-                        requests.post(
-                            f"https://api.telegram.org/bot{bot.token}/sendMessage",
-                            json={
-                                "chat_id": update.group_chat_id,
-                                "text": message_text,
-                                "parse_mode": "HTML",
-                            },
-                            timeout=5,
-                        )
-
-                        # Restore normal permissions
-                        requests.post(
-                            f"https://api.telegram.org/bot{bot.token}/setChatPermissions",
-                            json={
-                                "chat_id": update.group_chat_id,
-                                "permissions": {
-                                    "can_send_messages": True,
-                                    "can_send_media_messages": True,
-                                    "can_send_polls": True,
-                                    "can_send_other_messages": True,
-                                    "can_add_web_page_previews": True,
-                                    "can_change_info": False,
-                                    "can_invite_users": True,
-                                    "can_pin_messages": False,
-                                },
-                            },
-                            timeout=5,
-                        )
-                except Exception as e:
-                    print(f"Error updating Telegram group permissions: {e}")
+            status = "enabled" if update.value else "disabled"
+            logger.info(
+                f"[WebUI] Auto Night Mode {status} for GROUP CHAT ID: {update.group_chat_id}"
+            )
 
         query = f"UPDATE group_data SET {update.field} = ? WHERE group_chat_id = ?"
         cursor.execute(query, (update.value, update.group_chat_id))
@@ -273,6 +210,129 @@ async def update_group(
         conn.commit()
         conn.close()
 
+        logger.debug(
+            f"[WebUI] Group updated: {update.field} = {update.value} for GROUP CHAT ID: {update.group_chat_id}"
+        )
+
         return {"success": True, "message": "Group updated"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/pause")
+async def pause_group(
+    pause_data: GroupPause, current_user: User = Depends(get_current_user)
+):
+    """Manually pause/resume a group immediately"""
+    try:
+        import requests
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        bot = get_bot_instance()
+        if bot:
+            try:
+                if pause_data.pause:
+                    logger.info(
+                        f"[WebUI] Manual PAUSE triggered for GROUP CHAT ID: {pause_data.group_chat_id}"
+                    )
+                    # Send pause message to group
+                    message_text = (
+                        "⏸️ <b>Gruppe pausiert</b>\n\n"
+                        "Die Gruppe wurde manuell pausiert. "
+                        "Während dieser Zeit können nur Administratoren Nachrichten senden.\n\n"
+                        "Ein Admin kann die Gruppe jederzeit wieder aktivieren."
+                    )
+
+                    requests.post(
+                        f"https://api.telegram.org/bot{bot.token}/sendMessage",
+                        json={
+                            "chat_id": pause_data.group_chat_id,
+                            "text": message_text,
+                            "parse_mode": "HTML",
+                        },
+                        timeout=5,
+                    )
+
+                    # Restrict all members (only admins can send messages)
+                    requests.post(
+                        f"https://api.telegram.org/bot{bot.token}/setChatPermissions",
+                        json={
+                            "chat_id": pause_data.group_chat_id,
+                            "permissions": {
+                                "can_send_messages": False,
+                                "can_send_media_messages": False,
+                                "can_send_polls": False,
+                                "can_send_other_messages": False,
+                                "can_add_web_page_previews": False,
+                                "can_change_info": False,
+                                "can_invite_users": False,
+                                "can_pin_messages": False,
+                            },
+                        },
+                        timeout=5,
+                    )
+                else:
+                    logger.info(
+                        f"[WebUI] Manual RESUME triggered for GROUP CHAT ID: {pause_data.group_chat_id}"
+                    )
+                    # Send resume message
+                    message_text = (
+                        "▶️ <b>Gruppe wieder aktiv</b>\n\n"
+                        "Die Gruppe wurde wieder aktiviert. Alle Mitglieder können nun wieder Nachrichten senden."
+                    )
+
+                    requests.post(
+                        f"https://api.telegram.org/bot{bot.token}/sendMessage",
+                        json={
+                            "chat_id": pause_data.group_chat_id,
+                            "text": message_text,
+                            "parse_mode": "HTML",
+                        },
+                        timeout=5,
+                    )
+
+                    # Restore normal permissions
+                    requests.post(
+                        f"https://api.telegram.org/bot{bot.token}/setChatPermissions",
+                        json={
+                            "chat_id": pause_data.group_chat_id,
+                            "permissions": {
+                                "can_send_messages": True,
+                                "can_send_media_messages": True,
+                                "can_send_polls": True,
+                                "can_send_other_messages": True,
+                                "can_add_web_page_previews": True,
+                                "can_change_info": False,
+                                "can_invite_users": True,
+                                "can_pin_messages": False,
+                            },
+                        },
+                        timeout=5,
+                    )
+            except Exception as e:
+                logger.error(
+                    f"[WebUI] Error updating Telegram group permissions for GROUP CHAT ID {pause_data.group_chat_id}: {e}"
+                )
+
+        # Update database
+        cursor.execute(
+            "UPDATE group_data SET pause_active = ? WHERE group_chat_id = ?",
+            (1 if pause_data.pause else 0, pause_data.group_chat_id),
+        )
+
+        conn.commit()
+        conn.close()
+
+        action = "PAUSED" if pause_data.pause else "RESUMED"
+        logger.info(
+            f"[WebUI] Group {action} successfully for GROUP CHAT ID: {pause_data.group_chat_id}"
+        )
+
+        return {
+            "success": True,
+            "message": "Group paused" if pause_data.pause else "Group resumed",
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

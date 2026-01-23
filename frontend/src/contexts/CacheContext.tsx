@@ -2,9 +2,10 @@
 import {
   createContext,
   useContext,
-  useRef,
   ReactNode,
   useCallback,
+  useEffect,
+  useState,
 } from "react";
 
 interface CacheEntry<T> {
@@ -22,39 +23,103 @@ interface CacheContextType {
 const CacheContext = createContext<CacheContextType | undefined>(undefined);
 
 const DEFAULT_TTL = 5 * 60 * 1000; // 5 minutes
+const CACHE_PREFIX = "tg_bot_cache_";
+
+// Helper to get all cache keys
+const getCacheKeys = (): string[] => {
+  const keys: string[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key?.startsWith(CACHE_PREFIX)) {
+      keys.push(key.replace(CACHE_PREFIX, ""));
+    }
+  }
+  return keys;
+};
 
 export function CacheProvider({ children }: { children: ReactNode }) {
-  const cacheRef = useRef<Map<string, CacheEntry<unknown>>>(new Map());
+  const [isReady, setIsReady] = useState(false);
+
+  // Clean up expired cache entries on mount
+  useEffect(() => {
+    try {
+      const keys = getCacheKeys();
+      const now = Date.now();
+      const maxAge = 24 * 60 * 60 * 1000; // 24 hours max age for any cache
+
+      keys.forEach((key) => {
+        try {
+          const raw = localStorage.getItem(CACHE_PREFIX + key);
+          if (raw) {
+            const entry = JSON.parse(raw);
+            if (now - entry.timestamp > maxAge) {
+              localStorage.removeItem(CACHE_PREFIX + key);
+            }
+          }
+        } catch {
+          localStorage.removeItem(CACHE_PREFIX + key);
+        }
+      });
+    } catch (e) {
+      console.warn("LocalStorage cleanup failed:", e);
+    }
+    setIsReady(true);
+  }, []);
 
   const get = useCallback(<T,>(key: string): T | null => {
-    const entry = cacheRef.current.get(key);
-    if (!entry) return null;
-    return entry.data as T;
+    try {
+      const raw = localStorage.getItem(CACHE_PREFIX + key);
+      if (!raw) return null;
+      const entry: CacheEntry<T> = JSON.parse(raw);
+      return entry.data;
+    } catch {
+      return null;
+    }
   }, []);
 
   const set = useCallback(<T,>(key: string, data: T) => {
-    cacheRef.current.set(key, {
-      data,
-      timestamp: Date.now(),
-    });
+    try {
+      const entry: CacheEntry<T> = {
+        data,
+        timestamp: Date.now(),
+      };
+      localStorage.setItem(CACHE_PREFIX + key, JSON.stringify(entry));
+    } catch (e) {
+      // LocalStorage might be full or disabled
+      console.warn("Failed to cache data:", e);
+    }
   }, []);
 
   const clear = useCallback((key?: string) => {
-    if (key) {
-      cacheRef.current.delete(key);
-    } else {
-      cacheRef.current.clear();
+    try {
+      if (key) {
+        localStorage.removeItem(CACHE_PREFIX + key);
+      } else {
+        // Clear all cache entries
+        const keys = getCacheKeys();
+        keys.forEach((k) => localStorage.removeItem(CACHE_PREFIX + k));
+      }
+    } catch (e) {
+      console.warn("Failed to clear cache:", e);
     }
   }, []);
 
   const isStale = useCallback(
     (key: string, ttl: number = DEFAULT_TTL): boolean => {
-      const entry = cacheRef.current.get(key);
-      if (!entry) return true;
-      return Date.now() - entry.timestamp > ttl;
+      try {
+        const raw = localStorage.getItem(CACHE_PREFIX + key);
+        if (!raw) return true;
+        const entry = JSON.parse(raw);
+        return Date.now() - entry.timestamp > ttl;
+      } catch {
+        return true;
+      }
     },
     [],
   );
+
+  // Don't render children until cache cleanup is done
+  if (!isReady) return null;
 
   return (
     <CacheContext.Provider value={{ get, set, clear, isStale }}>

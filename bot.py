@@ -203,9 +203,7 @@ def load_version_info(file_path):
 # Function to check and log paths
 def check_and_log_paths():
     # Check if config directory exists
-    logger.info("=====================================================")
     logger.info("Checking Directories.....")
-    logger.info("-----------")
     if not os.path.exists(CONFIG_DIR):
         os.makedirs(CONFIG_DIR)
         logger.info("")
@@ -261,9 +259,18 @@ def init_db():
                                 user_id INTEGER,
                                 night_mode_message_id INTEGER,
                                 night_mode_active BOOLEAN DEFAULT 0,
+                                pause_active BOOLEAN DEFAULT 0,
                                 language TEXT
                               )"""
             )
+
+            # Add pause_active column if it doesn't exist (for existing databases)
+            try:
+                cursor.execute(
+                    "ALTER TABLE group_data ADD COLUMN pause_active BOOLEAN DEFAULT 0"
+                )
+            except sqlite3.OperationalError:
+                pass  # Column already exists
 
             # Get the default language
             default_language = config.get("tmdb", {}).get(
@@ -276,8 +283,8 @@ def init_db():
 
             if count == 0:  # Only insert if the table is empty
                 cursor.execute(
-                    """INSERT INTO group_data (group_chat_id, group_name, language, night_mode_active) VALUES (?, ?, ?, ?)""",
-                    (None, "Default Group", default_language, False),
+                    """INSERT INTO group_data (group_chat_id, group_name, language, night_mode_active, pause_active) VALUES (?, ?, ?, ?, ?)""",
+                    (None, "Default Group", default_language, False, False),
                 )
 
             conn.commit()
@@ -291,7 +298,6 @@ def log_config_entries(config):
     sensitive_keys = ["TOKEN", "API_KEY", "SECRET", "KEY"]  # Keys to redact
     logger.info("Initializing Config:")
     logger.info("Current Config.json settings:")
-    logger.info("-----------")
     for section, entries in config.items():
         if isinstance(entries, dict):
             logger.info(f"Section [{section}]:")
@@ -303,13 +309,10 @@ def log_config_entries(config):
                 logger.info(f"  → {key}: {value}")
         else:
             logger.info(f"{section}: {entries}")
-            logger.info("=====================================================")
 
 
 def configure_bot(TOKEN, TIMEZONE="Europe/Berlin"):
-    logger.info("=====================================================")
     logger.info("Checking Globals....")
-    logger.info("-----------")
     # Log the successful retrieval of the token with only the first and last 4 characters visible
     if TOKEN:
         redacted_token = redact_sensitive_info(TOKEN)
@@ -1781,9 +1784,7 @@ def run_bot():
 
             # Start the bot's polling mechanism
             # Start the Bot
-            logger.info("=====================================================")
             logger.info("Bot started polling...")
-            logger.info("-----------")
         application.run_polling()  # Run polling without async/await; let Application manage the loop
     except Exception as e:
         logger.error(f"An error occurred during bot operation: {e}")
@@ -1800,23 +1801,20 @@ def start_web_api(bot_instance):
         # Pass bot instance and start time to API
         set_bot_instance(bot_instance, bot_start_time)
 
-        logger.info("=====================================================")
         logger.info(f"→ Starting Web UI on http://{WEB_HOST}:{WEB_PORT}")
-        logger.info("-----------")
 
         # Run uvicorn server
         uvicorn.run(
             app,
             host=WEB_HOST,
             port=WEB_PORT,
-            log_level="info",
+            log_level="warning",
             access_log=False,
         )
     except Exception as e:
         logger.error(f"Failed to start Web UI: {e}")
 
 
-# Entry point
 # Entry point
 def main():
     try:

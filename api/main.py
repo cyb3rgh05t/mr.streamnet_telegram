@@ -72,6 +72,7 @@ def get_bot_start_time():
 async def lifespan(app: FastAPI):
     """Startup and shutdown events"""
     logger.info("FastAPI starting up...")
+    logger.info("FastAPI started successfully")
     yield
     logger.info("FastAPI shutting down...")
 

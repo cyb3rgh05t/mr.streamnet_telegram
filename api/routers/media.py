@@ -7,12 +7,23 @@ import requests
 import json
 import os
 import sys
+import time
+import logging
+
+logger = logging.getLogger(__name__)
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 from api.routers.auth import get_current_user, User
 
 router = APIRouter()
+
+# Server-side cache for media data
+_media_cache = {
+    "sonarr": {"data": None, "timestamp": 0},
+    "radarr": {"data": None, "timestamp": 0},
+}
+MEDIA_CACHE_TTL = 120  # 2 minutes cache
 
 
 class MediaItem(BaseModel):
@@ -55,7 +66,9 @@ async def get_sonarr_media(
     search: Optional[str] = Query(None),
     current_user: User = Depends(get_current_user),
 ):
-    """Get Sonarr series"""
+    """Get Sonarr series with server-side caching"""
+    global _media_cache
+
     try:
         config = get_config()
 
@@ -67,47 +80,61 @@ async def get_sonarr_media(
         ):
             return MediaResponse(items=[], total=0)
 
-        sonarr_url = config["sonarr"]["URL"]
-        sonarr_api_key = config["sonarr"]["API_KEY"]
+        # Check cache first
+        now = time.time()
+        if (
+            _media_cache["sonarr"]["data"]
+            and (now - _media_cache["sonarr"]["timestamp"]) < MEDIA_CACHE_TTL
+        ):
+            items = _media_cache["sonarr"]["data"]
+            logger.debug(f"Sonarr: Returning {len(items)} cached items")
+        else:
+            sonarr_url = config["sonarr"]["URL"]
+            sonarr_api_key = config["sonarr"]["API_KEY"]
 
-        headers = {"X-Api-Key": sonarr_api_key}
-        response = requests.get(
-            f"{sonarr_url}/api/v3/series", headers=headers, timeout=10
-        )
-        response.raise_for_status()
-
-        series = response.json()
-
-        items = [
-            MediaItem(
-                id=s.get("id", 0),
-                title=s.get("title", "Unknown"),
-                year=s.get("year"),
-                status=s.get("status", "unknown"),
-                poster=(
-                    next(
-                        (
-                            img.get("remoteUrl")
-                            for img in s.get("images", [])
-                            if img.get("coverType") == "poster"
-                        ),
-                        None,
-                    )
-                ),
-                type="series",
+            headers = {"X-Api-Key": sonarr_api_key}
+            response = requests.get(
+                f"{sonarr_url}/api/v3/series", headers=headers, timeout=15
             )
-            for s in series
-        ]
+            response.raise_for_status()
 
+            series = response.json()
+
+            items = [
+                MediaItem(
+                    id=s.get("id", 0),
+                    title=s.get("title", "Unknown"),
+                    year=s.get("year"),
+                    status=s.get("status", "unknown"),
+                    poster=(
+                        next(
+                            (
+                                img.get("remoteUrl")
+                                for img in s.get("images", [])
+                                if img.get("coverType") == "poster"
+                            ),
+                            None,
+                        )
+                    ),
+                    type="series",
+                )
+                for s in series
+            ]
+
+            # Update cache
+            _media_cache["sonarr"] = {"data": items, "timestamp": now}
+            logger.debug(f"Sonarr: Fetched and cached {len(items)} items")
+
+        # Apply search filter
         if search:
             items = [i for i in items if search.lower() in i.title.lower()]
 
         return MediaResponse(items=items, total=len(items))
     except requests.exceptions.RequestException as e:
-        # Connection/network error - return empty list instead of error
+        logger.debug(f"Sonarr API error: {e}")
         return MediaResponse(items=[], total=0)
     except Exception as e:
-        # Other errors - return empty list
+        logger.debug(f"Sonarr error: {e}")
         return MediaResponse(items=[], total=0)
 
 
@@ -117,7 +144,9 @@ async def get_radarr_media(
     search: Optional[str] = Query(None),
     current_user: User = Depends(get_current_user),
 ):
-    """Get Radarr movies"""
+    """Get Radarr movies with server-side caching"""
+    global _media_cache
+
     try:
         config = get_config()
 
@@ -129,42 +158,56 @@ async def get_radarr_media(
         ):
             return MediaResponse(items=[], total=0)
 
-        radarr_url = config["radarr"]["URL"]
-        radarr_api_key = config["radarr"]["API_KEY"]
+        # Check cache first
+        now = time.time()
+        if (
+            _media_cache["radarr"]["data"]
+            and (now - _media_cache["radarr"]["timestamp"]) < MEDIA_CACHE_TTL
+        ):
+            items = _media_cache["radarr"]["data"]
+            logger.debug(f"Radarr: Returning {len(items)} cached items")
+        else:
+            radarr_url = config["radarr"]["URL"]
+            radarr_api_key = config["radarr"]["API_KEY"]
 
-        headers = {"X-Api-Key": radarr_api_key}
-        response = requests.get(
-            f"{radarr_url}/api/v3/movie", headers=headers, timeout=10
-        )
-        response.raise_for_status()
-
-        movies = response.json()
-
-        items = [
-            MediaItem(
-                id=m.get("id", 0),
-                title=m.get("title", "Unknown"),
-                year=m.get("year"),
-                status=m.get("status", "unknown"),
-                poster=(
-                    m.get("images", [{}])[0].get("remoteUrl")
-                    if m.get("images")
-                    else None
-                ),
-                type="movie",
+            headers = {"X-Api-Key": radarr_api_key}
+            response = requests.get(
+                f"{radarr_url}/api/v3/movie", headers=headers, timeout=15
             )
-            for m in movies
-        ]
+            response.raise_for_status()
 
+            movies = response.json()
+
+            items = [
+                MediaItem(
+                    id=m.get("id", 0),
+                    title=m.get("title", "Unknown"),
+                    year=m.get("year"),
+                    status=m.get("status", "unknown"),
+                    poster=(
+                        m.get("images", [{}])[0].get("remoteUrl")
+                        if m.get("images")
+                        else None
+                    ),
+                    type="movie",
+                )
+                for m in movies
+            ]
+
+            # Update cache
+            _media_cache["radarr"] = {"data": items, "timestamp": now}
+            logger.debug(f"Radarr: Fetched and cached {len(items)} items")
+
+        # Apply search filter
         if search:
             items = [i for i in items if search.lower() in i.title.lower()]
 
         return MediaResponse(items=items, total=len(items))
     except requests.exceptions.RequestException as e:
-        # Connection/network error - return empty list instead of error
+        logger.debug(f"Radarr API error: {e}")
         return MediaResponse(items=[], total=0)
     except Exception as e:
-        # Other errors - return empty list
+        logger.debug(f"Radarr error: {e}")
         return MediaResponse(items=[], total=0)
 
 
