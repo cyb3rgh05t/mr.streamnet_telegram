@@ -284,6 +284,7 @@ def init_db():
 # Log all config entries, redacting sensitive information
 def log_config_entries(config):
     sensitive_keys = ["TOKEN", "API_KEY", "SECRET", "KEY"]  # Keys to redact
+    logger.info("Initializing Config:")
     logger.info("Current Config.json settings:")
     logger.info("-----------")
     for section, entries in config.items():
@@ -1653,7 +1654,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 def print_logo():
-    logo = r"""                                                                                                
+    logo = r"""   
+
    __  __        ____  _                            _   _      _   
  |  \/  |_ __  / ___|| |_ _ __ ___  __ _ _ __ ___ | \ | | ___| |_ 
  | |\/| | '__| \___ \| __| '__/ _ \/ _` | '_ ` _ \|  \| |/ _ \ __|
@@ -1682,20 +1684,9 @@ def run_bot():
 
         # Log bot information asynchronously to ensure order
         if version_info:
-            logger.info("=====================================================")
-            logger.info(f"→ Version: {version_info.get('Version', 'Unknown')}")
-            logger.info(f"→ Author: {version_info.get('Author', 'Unknown')}")
-            logger.info("=====================================================")
-            logger.info(f"To support this project, please visit")
-            logger.info(f"https://github.com/cyb3rgh05t/telegram-bot")
-            logger.info("=====================================================")
-
-            logger.info("Starting the bot...")
-            logger.info(
-                f"You are running Version {version_info.get('Version', 'Unknown')}"
-            )
-            logger.info("-----------")
-
+            logger.info("")
+            logger.info("Starting Telegram Bot...")
+            logger.info(f"Version {version_info.get('Version', 'Unknown')}")
             # Log all configuration entries
             log_config_entries(config)
 
