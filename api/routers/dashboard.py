@@ -14,6 +14,8 @@ import logging
 import asyncio
 import aiohttp
 
+from api.routers.cache import get_total_members, is_member_cache_valid
+
 logger = logging.getLogger(__name__)
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
@@ -126,6 +128,12 @@ def get_bot_status() -> BotStatus:
             "SELECT COUNT(*) FROM group_data WHERE group_chat_id IS NOT NULL"
         )
         groups = cursor.fetchone()[0]
+
+        # Get total member count from database (fallback for after restart)
+        cursor.execute(
+            "SELECT COALESCE(SUM(member_count), 0) FROM group_data WHERE group_chat_id IS NOT NULL"
+        )
+        db_member_count = cursor.fetchone()[0]
         conn.close()
 
         # Check if we have cached bot status for expensive operations
@@ -152,9 +160,10 @@ def get_bot_status() -> BotStatus:
             except Exception:
                 latency = None
 
-            # Skip member count fetching - it's too slow for multiple groups
-            # Just show groups count instead
-            total_members = 0
+            # Get member count: prefer shared cache, fallback to database
+            total_members = get_total_members()
+            if total_members == 0:
+                total_members = db_member_count
 
             # Update cache
             _cache["bot_status"] = {

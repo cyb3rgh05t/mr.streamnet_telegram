@@ -260,7 +260,8 @@ def init_db():
                                 night_mode_message_id INTEGER,
                                 night_mode_active BOOLEAN DEFAULT 0,
                                 pause_active BOOLEAN DEFAULT 0,
-                                language TEXT
+                                language TEXT,
+                                member_count INTEGER DEFAULT 0
                               )"""
             )
 
@@ -268,6 +269,14 @@ def init_db():
             try:
                 cursor.execute(
                     "ALTER TABLE group_data ADD COLUMN pause_active BOOLEAN DEFAULT 0"
+                )
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+
+            # Add member_count column if it doesn't exist (for existing databases)
+            try:
+                cursor.execute(
+                    "ALTER TABLE group_data ADD COLUMN member_count INTEGER DEFAULT 0"
                 )
             except sqlite3.OperationalError:
                 pass  # Column already exists

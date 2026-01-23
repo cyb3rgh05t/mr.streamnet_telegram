@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../.
 
 from api.routers.auth import get_current_user, User
 from api.main import get_bot_instance
+from api.routers.cache import set_total_members
 
 router = APIRouter()
 
@@ -126,11 +127,19 @@ async def get_groups(current_user: User = Depends(get_current_user)):
         )
 
         rows = cursor.fetchall()
-        conn.close()
 
         groups = []
+        total_members = 0
+        member_updates = []
         for row in rows:
             stats = await get_group_stats(row[1])
+            member_count = 0
+            if stats:
+                member_count = stats.member_count
+                total_members += member_count
+                # Queue update for database
+                if row[1]:  # Only if group_chat_id is not None
+                    member_updates.append((member_count, row[1]))
             groups.append(
                 GroupItem(
                     id=row[0],
@@ -142,6 +151,19 @@ async def get_groups(current_user: User = Depends(get_current_user)):
                     stats=stats,
                 )
             )
+
+        # Save member counts to database for persistence
+        if member_updates:
+            cursor.executemany(
+                "UPDATE group_data SET member_count = ? WHERE group_chat_id = ?",
+                member_updates,
+            )
+            conn.commit()
+
+        conn.close()
+
+        # Cache total member count for dashboard
+        set_total_members(total_members)
 
         return GroupsResponse(groups=groups, total=len(groups))
     except Exception as e:
