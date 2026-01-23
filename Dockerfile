@@ -23,12 +23,19 @@ FROM python:3.11-slim
 LABEL maintainer=cyb3rgh05t
 LABEL org.opencontainers.image.source=https://github.com/cyb3rgh05t/telegram-bot
 
+# Install system dependencies required for Python packages
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
+
 # working directory in the container
 WORKDIR /app
 
 # Copy the requirements file and install dependencies
 COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
 
 # Copy the rest of your application code
 COPY . .
@@ -37,7 +44,7 @@ COPY . .
 COPY --from=frontend-builder /frontend/dist ./frontend/dist
 
 # Expose API port (if web UI is enabled)
-EXPOSE 5000
+EXPOSE 8000
 
 # Run the bot
 CMD ["python", "bot.py"]
