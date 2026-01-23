@@ -41,10 +41,13 @@ RUN pip install --no-cache-dir --upgrade pip && \
 COPY . .
 
 # Copy built frontend from Stage 1
-COPY --from=frontend-builder /frontend/dist ./frontend/dist
+COPY --from=frontend-builder /frontend/dist ./api/static
 
 # Expose API port (if web UI is enabled)
 EXPOSE 8000
+
+# Set environment variable for port
+ENV WEB_PORT=8000
 
 # Run the bot
 CMD ["python", "bot.py"]
