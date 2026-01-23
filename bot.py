@@ -28,6 +28,8 @@ from telegram.ext import (
     ContextTypes,
 )
 import sys
+import threading
+import uvicorn
 
 # Configurations
 CONFIG_DIR = "config"
@@ -35,6 +37,9 @@ CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
 
 DATABASE_DIR = "database"
 DATABASE_FILE = os.path.join(DATABASE_DIR, "group_data.db")
+
+# Logs directory
+LOGS_DIR = "logs"
 
 # Check if config.json is present
 if not os.path.isfile(CONFIG_FILE):
@@ -94,6 +99,10 @@ HELP_COMMAND = config.get("commands").get("HELP", "help")
 SEARCH_COMMAND = config.get("commands").get("SEARCH", "search")
 # TOPICS
 TOPICS = config.get("topics", {})
+# WEB UI
+WEB_ENABLED = config.get("web", {}).get("ENABLED", False)
+WEB_HOST = config.get("web", {}).get("HOST", "0.0.0.0")
+WEB_PORT = config.get("web", {}).get("PORT", 5000)
 
 # Configure the bot logger
 logger = logging.getLogger("bot")
@@ -116,6 +125,9 @@ log_lock = asyncio.Lock()
 
 # Global reference for bot application
 application = None
+
+# Global reference for bot start time (for uptime calculation)
+bot_start_time = None
 
 # Global reference for the group data
 GROUP_CHAT_ID = None
@@ -167,6 +179,13 @@ def check_and_log_paths():
         logger.info("")
     else:
         logger.info(f"DATABASE directory '{DATABASE_DIR}' already exists.")
+
+    # Check if logs directory exists
+    if not os.path.exists(LOGS_DIR):
+        os.makedirs(LOGS_DIR)
+        logger.info(f"LOGS directory '{LOGS_DIR}' created.")
+    else:
+        logger.info(f"LOGS directory '{LOGS_DIR}' already exists.")
 
     # Check if database file exists
     if not os.path.exists(DATABASE_FILE):
@@ -1675,6 +1694,18 @@ def run_bot():
 
             application = ApplicationBuilder().token(TOKEN).build()
 
+            # Store start time for uptime calculation in global variable
+            global bot_start_time
+            bot_start_time = datetime.now()
+
+            # Start Web API in background thread if enabled
+            if WEB_ENABLED:
+                web_thread = threading.Thread(
+                    target=start_web_api, args=(application.bot,), daemon=True
+                )
+                web_thread.start()
+                logger.info("Web UI thread started")
+
             # Register the command handlers
             application.add_handler(CommandHandler(START_COMMAND, start))
             application.add_handler(CommandHandler(HELP_COMMAND, help))
@@ -1723,6 +1754,32 @@ def run_bot():
         logger.info("Shutting down the bot.")
 
 
+# Web API server function
+def start_web_api(bot_instance):
+    """Start the FastAPI web server in a separate thread"""
+    try:
+        from api.main import app, set_bot_instance
+
+        # Pass bot instance and start time to API
+        set_bot_instance(bot_instance, bot_start_time)
+
+        logger.info("=====================================================")
+        logger.info(f"Starting Web UI on http://{WEB_HOST}:{WEB_PORT}")
+        logger.info("-----------")
+
+        # Run uvicorn server
+        uvicorn.run(
+            app,
+            host=WEB_HOST,
+            port=WEB_PORT,
+            log_level="info",
+            access_log=False,
+        )
+    except Exception as e:
+        logger.error(f"Failed to start Web UI: {e}")
+
+
+# Entry point
 # Entry point
 def main():
     try:

@@ -38,6 +38,14 @@
         "API_KEY": "YOUR_RADARR_API_KEY",
         "QUALITY_PROFILE_NAME": "HD-720p/1080p",
         "ROOT_FOLDER_PATH": "/movies"
+    },
+    "web": {
+        "ENABLED": true,
+        "HOST": "0.0.0.0",
+        "PORT": 5000,
+        "AUTH_ENABLED": false,
+        "SECRET_KEY": "change-me-in-production-please-use-strong-key",
+        "VERBOSE_LOGGING": false
     }
 }
 
