@@ -102,7 +102,7 @@ TOPICS = config.get("topics", {})
 # WEB UI
 WEB_ENABLED = config.get("web", {}).get("ENABLED", False)
 WEB_HOST = config.get("web", {}).get("HOST", "0.0.0.0")
-WEB_PORT = config.get("web", {}).get("PORT", 5000)
+WEB_PORT = int(os.environ.get("WEB_PORT", config.get("web", {}).get("PORT", 8000)))
 
 # Configure the bot logger
 logger = logging.getLogger("bot")
