@@ -139,7 +139,12 @@ apscheduler_logger.setLevel(
 )  # Set it to WARNING or ERROR to suppress INFO logs
 
 # Create handlers with colored formatter
-console_handler = logging.StreamHandler()
+# Use sys.stdout with UTF-8 encoding to support Unicode characters on Windows
+console_handler = logging.StreamHandler(
+    stream=open(
+        sys.stdout.fileno(), mode="w", encoding="utf-8", buffering=1, closefd=False
+    )
+)
 console_handler.setFormatter(
     ColoredFormatter(
         fmt="[%(asctime)s] [%(levelname)s]   %(message)s",
@@ -147,8 +152,8 @@ console_handler.setFormatter(
     )
 )
 
-# File handler without colors
-file_handler = logging.FileHandler(os.path.join(LOGS_DIR, "bot.log"))
+# File handler without colors (UTF-8 encoding)
+file_handler = logging.FileHandler(os.path.join(LOGS_DIR, "bot.log"), encoding="utf-8")
 file_handler.setFormatter(
     logging.Formatter(
         fmt="[%(asctime)s] [%(levelname)s]   %(message)s",

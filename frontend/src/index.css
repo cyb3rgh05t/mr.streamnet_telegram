@@ -40,7 +40,7 @@
     --accent-color: #7a7a7a;
     --accent-color-hover: #9b9b9b;
     --link-color: #7a7a7a;
-    --link-color-hover: #323232;
+    --link-color-hover: #9b9b9b;
 
     /* Text Colors */
     --text: #ddd;
@@ -60,6 +60,13 @@
     --stat-roles: #f5576c;
     --stat-commands: #faa61a;
     --stat-services: #38ef7d;
+
+    /* Discord Colors */
+    --discord-blurple: #5865f2;
+    --discord-green: #57f287;
+    --discord-yellow: #fee75c;
+    --discord-fuchsia: #eb459e;
+    --discord-red: #ed4245;
 
     /* Spacing */
     --sidebar-width: 250px;
@@ -224,9 +231,11 @@
     color: white;
   }
 
-  .nav-item i {
+  .nav-item i,
+  .nav-item svg {
     width: 20px;
     text-align: center;
+    flex-shrink: 0;
   }
 
   .nav-divider {
@@ -274,12 +283,12 @@
     margin: 0 auto;
   }
 
-  /* Card styles */
+  /* Card styles - Discord Style */
   .card {
     background: var(--card-bg);
     border: 1px solid var(--border-color);
-    border-radius: 0.75rem;
-    padding: 1.5rem;
+    border-radius: 8px;
+    overflow: hidden;
     transition: all 0.2s;
   }
 
@@ -288,71 +297,93 @@
   }
 
   .card-header {
-    margin-bottom: 1.5rem;
-    padding-bottom: 1rem;
+    padding: 1.5rem;
     border-bottom: 1px solid var(--border-color);
+    background: rgba(0, 0, 0, 0.3);
+    margin: 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
   }
 
   .card-header h3 {
-    font-size: 1.25rem;
+    font-size: 1.125rem;
     font-weight: 600;
     color: var(--text);
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
   }
 
   .card-body {
+    padding: 1.5rem;
     color: var(--text);
   }
 
   .card-footer {
-    margin-top: 1.5rem;
-    padding-top: 1rem;
+    padding: 1.5rem;
     border-top: 1px solid var(--border-color);
+    background: rgba(0, 0, 0, 0.2);
   }
 
-  /* Status Banner */
+  /* Status Banner - Discord Style */
   .status-banner {
     background: var(--card-bg);
     border: 1px solid var(--border-color);
-    border-radius: 0.75rem;
+    border-radius: 12px;
     padding: 2rem;
     margin-bottom: 2rem;
   }
 
   .status-main {
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    flex-wrap: wrap;
-    gap: 2rem;
+    flex-direction: column;
+    gap: 1.5rem;
   }
 
   .status-indicator-wrapper {
     display: flex;
-    align-items: center;
-    gap: 1rem;
-    margin-bottom: 1.5rem;
+    justify-content: center;
+    border: none;
+    outline: none;
   }
 
   .status-indicator {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
+    gap: 1rem;
+    border: none !important;
+    outline: none !important;
+    box-shadow: none !important;
+    background: transparent !important;
+    padding: 0 !important;
   }
 
   .status-indicator h2 {
-    font-size: 1.5rem;
-    font-weight: 600;
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
+    margin: 0;
+    font-size: 2rem;
+    font-weight: 700;
+    border: none !important;
+    outline: none !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+
+  .status-dot.large {
+    width: 16px;
+    height: 16px;
+    box-shadow: 0 0 8px currentColor;
   }
 
   .status-online {
     color: var(--status-online);
+    text-shadow: none !important;
   }
 
   .status-offline {
     color: var(--status-offline);
+    text-shadow: none !important;
   }
 
   .status-details {
@@ -363,29 +394,34 @@
 
   .status-item {
     display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 1rem;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
   }
 
-  .status-item i,
   .status-item svg {
     color: var(--accent-color);
     font-size: 1.25rem;
-    margin-bottom: 0.5rem;
+    width: 24px;
+    text-align: center;
   }
 
   .status-item .label {
     color: var(--text-muted);
     font-size: 0.875rem;
+    flex: 1;
   }
 
   .status-item .value {
     color: var(--text);
     font-weight: 600;
-    font-size: 1.25rem;
+    font-size: 1rem;
   }
 
-  /* Modern Bot Status Banner */
+  /* Modern Bot Status Banner (alternative) */
   .status-banner-modern {
     background: var(--card-bg);
     border: 1px solid var(--border-color);
@@ -454,7 +490,7 @@
     font-size: 1.125rem;
   }
 
-  /* Quick Stats */
+  /* Quick Stats - Discord Style */
   .quick-stats {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
@@ -465,7 +501,7 @@
   .stat-card {
     background: var(--card-bg);
     border: 1px solid var(--border-color);
-    border-radius: 0.75rem;
+    border-radius: 8px;
     padding: 1.5rem;
     display: flex;
     align-items: center;
@@ -481,7 +517,7 @@
   .stat-icon {
     width: 60px;
     height: 60px;
-    border-radius: 0.75rem;
+    border-radius: 12px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -495,40 +531,40 @@
   }
 
   .stat-icon.groups-icon {
-    background: var(--stat-channels);
+    background: #667eea;
   }
 
   .stat-icon.media-icon {
-    background: var(--stat-roles);
+    background: #f5576c;
   }
 
   .stat-icon.services-icon {
-    background: var(--stat-services);
+    background: #38ef7d;
   }
 
   .stat-icon.sonarr-icon {
-    background: var(--stat-commands);
+    background: #faa61a;
   }
 
   .stat-icon.radarr-icon {
-    background: var(--stat-roles);
+    background: #f5576c;
   }
 
   .stat-info {
     flex: 1;
   }
 
-  .stat-value {
-    font-size: 1.75rem;
-    font-weight: 700;
+  .stat-info .stat-value {
+    font-size: 2rem;
+    font-weight: 600;
     color: var(--text);
     line-height: 1;
-    margin-bottom: 0.5rem;
   }
 
-  .stat-label {
+  .stat-info .stat-label {
     color: var(--text-muted);
     font-size: 0.875rem;
+    margin-top: 0.25rem;
   }
 
   /* Dashboard Grid */
@@ -1083,6 +1119,76 @@
     padding: 1rem 1.5rem;
     border-top: 1px solid var(--border-color);
     background: rgba(30, 30, 30, 0.5);
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  /* Version Info */
+  .version-info {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 0.5rem;
+    font-size: 0.875rem;
+    color: var(--text-muted);
+    transition: all 0.2s;
+  }
+
+  .version-info:hover {
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text);
+  }
+
+  .version-info svg {
+    color: var(--accent-color);
+  }
+
+  /* Version Badges */
+  .version-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    font-size: 0.75rem;
+    margin-left: auto;
+    transition: all 0.2s;
+  }
+
+  .version-badge.checking {
+    color: var(--info-color);
+  }
+
+  .version-badge.up-to-date {
+    background: rgba(56, 239, 125, 0.2);
+    color: var(--status-online);
+  }
+
+  .version-badge.update-available {
+    background: rgba(250, 166, 26, 0.2);
+    color: var(--stat-commands);
+    animation: pulse-update 2s infinite;
+  }
+
+  .version-badge.warning {
+    background: rgba(220, 53, 69, 0.2);
+    color: var(--danger-color);
+  }
+
+  @keyframes pulse-update {
+    0%,
+    100% {
+      opacity: 1;
+      transform: scale(1);
+    }
+    50% {
+      opacity: 0.7;
+      transform: scale(1.1);
+    }
   }
 
   .sidebar-logout {
@@ -1535,16 +1641,20 @@
   }
 }
 
-/* About Page Styles */
+/* About Page Styles - Discord Bot Style */
 .about-page {
-  padding: 2rem;
+  padding: 0;
   max-width: 1400px;
   margin: 0 auto;
 }
 
+.about-page .page-header {
+  margin-bottom: 2rem;
+}
+
 .about-page .card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(450px, 1fr));
   gap: 1.5rem;
   margin-bottom: 1.5rem;
 }
@@ -1552,7 +1662,7 @@
 .about-card {
   background: var(--card-bg);
   border: 1px solid var(--border-color);
-  border-radius: 0.5rem;
+  border-radius: 8px;
   overflow: hidden;
 }
 
@@ -1562,7 +1672,8 @@
   align-items: center;
   padding: 1.5rem;
   border-bottom: 1px solid var(--border-color);
-  background: rgba(255, 255, 255, 0.02);
+  background: rgba(0, 0, 0, 0.3);
+  margin: 0;
 }
 
 .about-card .card-header h3 {
@@ -1578,17 +1689,20 @@
   padding: 1.5rem;
 }
 
-/* Version Display */
+/* Version Display - Discord Style */
 .version-display {
   display: flex;
   align-items: center;
   gap: 1.5rem;
   margin-bottom: 1.5rem;
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 8px;
 }
 
 .version-icon {
   font-size: 3rem;
-  color: var(--accent-color);
+  color: var(--link-color);
 }
 
 .version-details h4 {
@@ -1596,20 +1710,21 @@
   color: var(--text-muted);
   font-size: 0.875rem;
   font-weight: 500;
+  text-transform: uppercase;
 }
 
 .version-number {
-  font-size: 2rem;
-  font-weight: 700;
+  font-size: 1.5rem;
+  font-weight: 600;
   margin: 0;
   color: var(--text);
   font-family: "Courier New", monospace;
 }
 
-/* Update Status */
+/* Update Status - Discord Style */
 .update-status {
   padding: 1rem;
-  border-radius: 0.375rem;
+  border-radius: 8px;
   margin-bottom: 1.5rem;
   display: flex;
   align-items: center;
@@ -1618,15 +1733,15 @@
 }
 
 .update-status.checking {
-  background: rgba(59, 130, 246, 0.1);
-  border: 1px solid rgba(59, 130, 246, 0.2);
-  color: #60a5fa;
+  background: rgba(23, 162, 184, 0.1);
+  border: 1px solid rgba(23, 162, 184, 0.3);
+  color: #17a2b8;
 }
 
 .update-status.update-available {
-  background: rgba(251, 146, 60, 0.1);
-  border: 1px solid rgba(251, 146, 60, 0.2);
-  color: #fb923c;
+  background: rgba(255, 193, 7, 0.1);
+  border: 1px solid rgba(255, 193, 7, 0.3);
+  color: #ffc107;
 }
 
 .update-status.update-available .update-content {
@@ -1638,15 +1753,16 @@
 }
 
 .update-status.up-to-date {
-  background: rgba(34, 197, 94, 0.1);
-  border: 1px solid rgba(34, 197, 94, 0.2);
-  color: #4ade80;
+  background: rgba(40, 167, 69, 0.1);
+  border: 1px solid rgba(40, 167, 69, 0.3);
+  color: var(--success-color);
 }
 
-.update-status.error {
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.2);
-  color: #f87171;
+.update-status.error,
+.update-status.warning {
+  background: rgba(220, 53, 69, 0.1);
+  border: 1px solid rgba(220, 53, 69, 0.3);
+  color: var(--danger-color);
 }
 
 /* Version Actions */
@@ -1656,19 +1772,19 @@
   flex-wrap: wrap;
 }
 
-/* Bot Status Display */
+/* Bot Status Display - Discord Style */
 .status-display {
   display: flex;
   align-items: center;
   gap: 1.5rem;
   margin-bottom: 1.5rem;
   padding: 1rem;
-  background: rgba(255, 255, 255, 0.02);
-  border-radius: 0.375rem;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 8px;
 }
 
 .status-icon {
-  font-size: 2rem;
+  font-size: 3rem;
 }
 
 .status-icon.online {
@@ -1691,7 +1807,7 @@
   font-size: 0.95rem;
 }
 
-/* Stats Grid */
+/* Stats Grid - Discord Style */
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -1702,41 +1818,40 @@
   display: flex;
   align-items: center;
   gap: 1rem;
-  padding: 1rem;
-  background: rgba(255, 255, 255, 0.02);
+  padding: 0.75rem;
+  background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--border-color);
-  border-radius: 0.375rem;
+  border-radius: 6px;
 }
 
 .stat-box svg {
   font-size: 1.5rem;
-  color: var(--accent-color);
+  color: var(--link-color);
 }
 
 .stat-box div {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
 }
 
-.stat-label {
-  font-size: 0.8rem;
+.stat-box .stat-label {
+  font-size: 0.75rem;
   color: var(--text-muted);
   text-transform: uppercase;
-  font-weight: 500;
+  margin-bottom: 0.25rem;
 }
 
-.stat-value {
-  font-size: 1.125rem;
+.stat-box .stat-value {
+  font-size: 1rem;
   font-weight: 600;
   color: var(--text);
 }
 
-/* System Info List */
+/* Info List - Discord Style */
 .info-list {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 0.75rem;
 }
 
 .info-item {
@@ -1744,29 +1859,31 @@
   grid-template-columns: auto 1fr auto;
   align-items: center;
   gap: 1rem;
-  padding: 0.875rem;
-  background: rgba(255, 255, 255, 0.02);
+  padding: 0.75rem;
+  background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--border-color);
-  border-radius: 0.375rem;
+  border-radius: 6px;
 }
 
 .info-item svg {
   font-size: 1.25rem;
-  color: var(--accent-color);
+  color: var(--link-color);
+  width: 20px;
+  text-align: center;
 }
 
 .info-label {
   color: var(--text-muted);
-  font-size: 0.9rem;
+  font-size: 0.875rem;
 }
 
 .info-value {
   color: var(--text);
-  font-weight: 500;
+  font-weight: 600;
   text-align: right;
 }
 
-/* Links Grid */
+/* Links Grid - Discord Style */
 .links-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -1778,22 +1895,25 @@
   align-items: center;
   gap: 1rem;
   padding: 1rem;
-  background: rgba(255, 255, 255, 0.02);
+  background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--border-color);
-  border-radius: 0.375rem;
+  border-radius: 8px;
   text-decoration: none;
+  color: var(--text);
   transition: all 0.2s;
 }
 
 .link-card:hover {
-  background: rgba(255, 255, 255, 0.05);
-  border-color: var(--accent-color);
+  background: rgba(255, 255, 255, 0.08);
+  border-color: var(--link-color);
   transform: translateY(-2px);
 }
 
 .link-card svg {
   font-size: 1.5rem;
-  color: var(--accent-color);
+  color: var(--link-color);
+  width: 20px;
+  text-align: center;
 }
 
 .link-card.kofi svg {
@@ -1812,7 +1932,7 @@
   font-size: 0.85rem;
 }
 
-/* Credits Card */
+/* Credits Card - Discord Style */
 .credits-card {
   grid-column: 1 / -1;
 }
@@ -1820,6 +1940,7 @@
 .credits-grid {
   display: flex;
   gap: 3rem;
+  flex-wrap: wrap;
 }
 
 .credit-section h4 {
@@ -1836,17 +1957,17 @@
   align-items: center;
   gap: 0.5rem;
   padding: 0.75rem 1rem;
-  background: rgba(255, 255, 255, 0.02);
+  background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--border-color);
-  border-radius: 0.375rem;
+  border-radius: 6px;
   text-decoration: none;
   color: var(--text);
   transition: all 0.2s;
 }
 
 .developer-link:hover {
-  background: rgba(255, 255, 255, 0.05);
-  border-color: var(--accent-color);
+  background: rgba(255, 255, 255, 0.08);
+  border-color: var(--link-color);
 }
 
 .tech-tags {
@@ -1860,11 +1981,17 @@
   align-items: center;
   gap: 0.5rem;
   padding: 0.5rem 1rem;
-  background: rgba(255, 255, 255, 0.02);
+  background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--border-color);
   border-radius: 1rem;
   font-size: 0.875rem;
   color: var(--text);
+  transition: all 0.2s;
+}
+
+.tech-tag:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: var(--link-color);
 }
 
 @layer utilities {

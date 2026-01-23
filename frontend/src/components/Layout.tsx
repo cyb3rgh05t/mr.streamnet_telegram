@@ -12,15 +12,25 @@ import {
   faClock,
   faUser,
   faInfoCircle,
+  faCodeBranch,
+  faSpinner,
+  faCheck,
+  faArrowUp,
+  faExclamationTriangle,
 } from "@fortawesome/free-solid-svg-icons";
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import api from "@/lib/api";
 
+// Primary navigation items
 const navigation = [
   { name: "Dashboard", href: "/dashboard", icon: faThLarge },
   { name: "Media", href: "/media", icon: faFilm },
   { name: "Groups", href: "/groups", icon: faUsers },
+];
+
+// Secondary navigation items (Settings & About)
+const secondaryNav = [
   { name: "Settings", href: "/settings", icon: faCog },
   { name: "About", href: "/about", icon: faInfoCircle },
 ];
@@ -31,6 +41,18 @@ export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [botStatus, setBotStatus] = useState({ online: false });
+  const [versionInfo, setVersionInfo] = useState<{
+    local: string;
+    remote: string;
+    is_update_available: boolean;
+    error?: string;
+    checking: boolean;
+  }>({
+    local: "unknown",
+    remote: "unknown",
+    is_update_available: false,
+    checking: false,
+  });
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -53,6 +75,73 @@ export default function Layout() {
     const interval = setInterval(fetchBotStatus, 5000);
     return () => clearInterval(interval);
   }, []);
+
+  // Fetch version info on mount
+  useEffect(() => {
+    fetchVersionInfo();
+  }, []);
+
+  const fetchVersionInfo = async () => {
+    try {
+      const response = await api.get("/about/version");
+      setVersionInfo({ ...response.data, checking: false });
+    } catch (error) {
+      console.error("Failed to fetch version info:", error);
+      setVersionInfo((prev) => ({ ...prev, checking: false }));
+    }
+  };
+
+  const checkVersion = async () => {
+    setVersionInfo((prev) => ({ ...prev, checking: true }));
+    await fetchVersionInfo();
+  };
+
+  const getBadgeContent = () => {
+    if (versionInfo.checking) {
+      return {
+        className: "version-badge checking",
+        icon: faSpinner,
+        spin: true,
+        title: "Checking for updates...",
+        clickable: false,
+      };
+    }
+    if (versionInfo.error) {
+      return {
+        className: "version-badge warning",
+        icon: faExclamationTriangle,
+        spin: false,
+        title: versionInfo.error,
+        clickable: true,
+      };
+    }
+    if (versionInfo.is_update_available) {
+      return {
+        className: "version-badge update-available",
+        icon: faArrowUp,
+        spin: false,
+        title: `Update available: v${versionInfo.remote}`,
+        clickable: true,
+      };
+    }
+    return {
+      className: "version-badge up-to-date",
+      icon: faCheck,
+      spin: false,
+      title: "Up to date",
+      clickable: false,
+    };
+  };
+
+  const handleBadgeClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (versionInfo.is_update_available) {
+      window.open(
+        "https://github.com/cyb3rgh05t/telegram-bot/releases/latest",
+        "_blank",
+      );
+    }
+  };
 
   return (
     <div className="min-h-screen">
@@ -122,6 +211,7 @@ export default function Layout() {
         )}
       >
         <div className="sidebar-content">
+          {/* Primary Navigation */}
           <nav className="sidebar-nav">
             {navigation.map((item) => {
               const isActive = location.pathname === item.href;
@@ -137,16 +227,63 @@ export default function Layout() {
                 </Link>
               );
             })}
+
+            {/* Divider */}
+            <div className="nav-divider" />
+
+            {/* Secondary Navigation */}
+            {secondaryNav.map((item) => {
+              const isActive = location.pathname === item.href;
+              return (
+                <Link
+                  key={item.name}
+                  to={item.href}
+                  className={cn("nav-item", isActive && "active")}
+                  onClick={() => setSidebarOpen(false)}
+                >
+                  <FontAwesomeIcon icon={item.icon} className="w-5 h-5" />
+                  <span>{item.name}</span>
+                </Link>
+              );
+            })}
           </nav>
 
-          {authEnabled && (
-            <div className="sidebar-footer">
+          {/* Sidebar Footer */}
+          <div className="sidebar-footer">
+            <div
+              className="version-info"
+              onClick={checkVersion}
+              style={{ cursor: "pointer" }}
+              title="Click to check for updates"
+            >
+              <FontAwesomeIcon icon={faCodeBranch} />
+              <span>
+                Version: <span id="botVersion">{versionInfo.local}</span>
+              </span>
+              {!versionInfo.checking && (
+                <span
+                  className={getBadgeContent().className}
+                  onClick={handleBadgeClick}
+                  title={getBadgeContent().title}
+                  style={{
+                    cursor: getBadgeContent().clickable ? "pointer" : "default",
+                  }}
+                >
+                  <FontAwesomeIcon
+                    icon={getBadgeContent().icon}
+                    spin={getBadgeContent().spin}
+                  />
+                </span>
+              )}
+            </div>
+
+            {authEnabled && (
               <button onClick={logout} className="sidebar-logout">
                 <FontAwesomeIcon icon={faSignOutAlt} className="w-5 h-5" />
                 <span>Logout</span>
               </button>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </aside>
 

@@ -101,47 +101,49 @@ export default function Dashboard() {
         <p className="subtitle">Overview of your Telegram bot</p>
       </div>
 
-      {/* Bot Status Banner */}
-      <div className="status-banner-modern">
-        <div className="bot-name-section">
-          <span
-            className={`status-dot ${
-              data.bot_status.online ? "online" : "offline"
-            }`}
-          ></span>
-          <h2 className="bot-name">{data.bot_status.name}</h2>
-        </div>
-        <div className="bot-stats-grid">
-          <div className="bot-stat-box">
-            <FontAwesomeIcon icon={faClock} className="stat-icon-small" />
-            <div className="stat-content">
-              <span className="stat-label-small">Uptime</span>
-              <span className="stat-value-small">{data.bot_status.uptime}</span>
+      {/* Bot Status Banner - Discord Style */}
+      <div className="status-banner">
+        <div className="status-main">
+          <div className="status-indicator-wrapper">
+            <div className="status-indicator">
+              <span
+                className={`status-dot large ${
+                  data.bot_status.online ? "online" : "offline"
+                }`}
+              ></span>
+              <h2
+                className={
+                  data.bot_status.online ? "status-online" : "status-offline"
+                }
+              >
+                {data.bot_status.name}
+              </h2>
             </div>
           </div>
-          <div className="bot-stat-box">
-            <FontAwesomeIcon icon={faPaperPlane} className="stat-icon-small" />
-            <div className="stat-content">
-              <span className="stat-label-small">Latency</span>
-              <span className="stat-value-small">
+          <div className="status-details">
+            <div className="status-item">
+              <FontAwesomeIcon icon={faClock} />
+              <span className="label">Uptime</span>
+              <span className="value">{data.bot_status.uptime}</span>
+            </div>
+            <div className="status-item">
+              <FontAwesomeIcon icon={faPaperPlane} />
+              <span className="label">Latency</span>
+              <span className="value">
                 {data.bot_status.latency
                   ? `${data.bot_status.latency.toFixed(2)}ms`
                   : "N/A"}
               </span>
             </div>
-          </div>
-          <div className="bot-stat-box">
-            <FontAwesomeIcon icon={faUsers} className="stat-icon-small" />
-            <div className="stat-content">
-              <span className="stat-label-small">Guilds</span>
-              <span className="stat-value-small">{data.bot_status.groups}</span>
+            <div className="status-item">
+              <FontAwesomeIcon icon={faUsers} />
+              <span className="label">Groups</span>
+              <span className="value">{data.bot_status.groups}</span>
             </div>
-          </div>
-          <div className="bot-stat-box">
-            <FontAwesomeIcon icon={faUsers} className="stat-icon-small" />
-            <div className="stat-content">
-              <span className="stat-label-small">Members</span>
-              <span className="stat-value-small">{data.bot_status.users}</span>
+            <div className="status-item">
+              <FontAwesomeIcon icon={faUsers} />
+              <span className="label">Members</span>
+              <span className="value">{data.bot_status.users}</span>
             </div>
           </div>
         </div>
