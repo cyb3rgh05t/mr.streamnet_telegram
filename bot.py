@@ -281,6 +281,15 @@ def init_db():
             except sqlite3.OperationalError:
                 pass  # Column already exists
 
+            # Create dashboard_cache table for persistent storage
+            cursor.execute(
+                """CREATE TABLE IF NOT EXISTS dashboard_cache (
+                                key TEXT PRIMARY KEY,
+                                value INTEGER DEFAULT 0,
+                                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                              )"""
+            )
+
             # Get the default language
             default_language = config.get("tmdb", {}).get(
                 "DEFAULT_LANGUAGE", "en"

@@ -191,10 +191,10 @@ def get_bot_status() -> BotStatus:
 
 
 def get_media_stats() -> MediaStats:
-    """Get media statistics from Sonarr/Radarr with caching"""
+    """Get media statistics from Sonarr/Radarr with caching and database persistence"""
     global _cache
 
-    # Check cache
+    # Check cache first
     now = time.time()
     if (
         _cache["media_stats"]["data"]
@@ -205,6 +205,23 @@ def get_media_stats() -> MediaStats:
     sonarr_total = 0
     radarr_total = 0
 
+    # Load from database as fallback (for after restart)
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT key, value FROM dashboard_cache WHERE key IN ('sonarr_total', 'radarr_total')"
+        )
+        for row in cursor.fetchall():
+            if row[0] == "sonarr_total":
+                sonarr_total = row[1]
+            elif row[0] == "radarr_total":
+                radarr_total = row[1]
+        conn.close()
+    except Exception as e:
+        logger.debug(f"Error loading media stats from database: {e}")
+
+    # Try to get fresh data from APIs
     try:
         # Load config
         config_path = os.path.join(
@@ -216,6 +233,10 @@ def get_media_stats() -> MediaStats:
             config = json.load(f)
 
         import requests
+
+        api_sonarr = 0
+        api_radarr = 0
+        got_fresh_data = False
 
         # Get Sonarr count
         if config.get("sonarr", {}).get("URL") and config.get("sonarr", {}).get(
@@ -229,7 +250,9 @@ def get_media_stats() -> MediaStats:
                     timeout=10,
                 )
                 if response.status_code == 200:
-                    sonarr_total = len(response.json())
+                    api_sonarr = len(response.json())
+                    sonarr_total = api_sonarr
+                    got_fresh_data = True
                     logger.debug(f"Sonarr: {sonarr_total} series found")
                 else:
                     logger.debug(f"Sonarr API returned status {response.status_code}")
@@ -248,12 +271,32 @@ def get_media_stats() -> MediaStats:
                     timeout=10,
                 )
                 if response.status_code == 200:
-                    radarr_total = len(response.json())
+                    api_radarr = len(response.json())
+                    radarr_total = api_radarr
+                    got_fresh_data = True
                     logger.debug(f"Radarr: {radarr_total} movies found")
                 else:
                     logger.debug(f"Radarr API returned status {response.status_code}")
             except Exception as e:
                 logger.debug(f"Radarr API error: {e}")
+
+        # Save to database if we got fresh data
+        if got_fresh_data:
+            try:
+                conn = get_db_connection()
+                cursor = conn.cursor()
+                cursor.execute(
+                    "INSERT OR REPLACE INTO dashboard_cache (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)",
+                    ("sonarr_total", sonarr_total),
+                )
+                cursor.execute(
+                    "INSERT OR REPLACE INTO dashboard_cache (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)",
+                    ("radarr_total", radarr_total),
+                )
+                conn.commit()
+                conn.close()
+            except Exception as e:
+                logger.debug(f"Error saving media stats to database: {e}")
 
     except Exception as e:
         logger.debug(f"Error loading config for media stats: {e}")
