@@ -1,4 +1,4 @@
-python-telegram-bot==22.6
+python-telegram-bot==22.7
 pytz
 python-telegram-bot [job-queue]
 requests
